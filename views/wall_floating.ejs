@@ -35,7 +35,7 @@
 </style>
 
 <main class="wall dark" style="padding:0; margin:0;">
-  <video id="bg-video" autoplay muted loop playsinline></video>
+  <video id="bg-video" autoplay muted playsinline></video>
   <div id="quotes-layer" class="quotes-layer"></div>
 </main>
 
@@ -59,6 +59,39 @@
   video.src = '/static/' + videoSrc;
   video.onerror = () => { video.remove(); document.body.style.background = '#000'; };
 
+  // --- Ping-pong loop: forward -> backward -> forward ---
+  function playForward() {
+    video.playbackRate = 1;
+    video.currentTime = 0;
+    video.play();
+  }
+
+  function playBackward() {
+    video.playbackRate = -1;
+    if (!isNaN(video.duration)) {
+      video.currentTime = Math.max(0, video.duration - 0.01);
+    }
+    video.play();
+  }
+
+  video.addEventListener('loadedmetadata', () => {
+    playForward();
+  });
+
+  video.addEventListener('ended', () => {
+    if (video.playbackRate > 0) {
+      playBackward();
+    } else {
+      playForward();
+    }
+  });
+
+  video.addEventListener('timeupdate', () => {
+    if (video.playbackRate < 0 && video.currentTime <= 0.02) {
+      playForward();
+    }
+  });
+
   const layer = document.getElementById('quotes-layer');
   layer.style.setProperty('--pad', paddingV + 'vmin');
 
@@ -81,9 +114,8 @@
     el.style.visibility = 'hidden';
     layer.appendChild(el);
 
-    // measure
     const box = el.getBoundingClientRect();
-    const padPx = Math.max(window.innerWidth, window.innerHeight) * (paddingV/100); // approx vmin -> px
+    const padPx = Math.max(window.innerWidth, window.innerHeight) * (paddingV/100);
     const W = window.innerWidth  - box.width  - padPx*2;
     const H = window.innerHeight - box.height - padPx*2;
 
@@ -137,7 +169,7 @@
     const res = await fetch('/api/approved');
     const data = await res.json();
     const items = data.items || [];
-    const pick = items.slice(-maxActive); // latest few
+    const pick = items.slice(-maxActive);
     pick.forEach((it, i) => setTimeout(() => spawn(it.text), i*3000));
   }
 
