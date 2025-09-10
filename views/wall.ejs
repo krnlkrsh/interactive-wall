@@ -1,0 +1,32 @@
+<% include partials_head %>
+  <main class="wall <%= theme %>">
+    <div id="wall" class="tiles" style="--cols:<%= columns %>; --gap:<%= gap %>; --fs:<%= fontsize %>"></div>
+  </main>
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const wallEl = document.getElementById('wall');
+    function makeTile(item){
+      const tile = document.createElement('div');
+      tile.className = 'tile';
+      const inner = document.createElement('div');
+      inner.className = 'tile-inner';
+      inner.textContent = item.text;
+      tile.appendChild(inner);
+      return tile;
+    }
+    async function loadInitial() {
+      const res = await fetch('/api/approved');
+      const data = await res.json();
+      data.items.forEach(item => wallEl.appendChild(makeTile(item)));
+    }
+    function bootSocket() {
+      const socket = io();
+      socket.on('approved_item', (item) => {
+        wallEl.appendChild(makeTile(item));
+        // Optional: scroll to bottom if overflowing
+        window.requestAnimationFrame(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }));
+      });
+    }
+    loadInitial().then(bootSocket);
+  </script>
+<% include partials_foot %>

@@ -1,0 +1,4 @@
+# Add one term per line (case-insensitive). Lines starting with # are comments.
+# Examples:
+slur-example
+badword-example

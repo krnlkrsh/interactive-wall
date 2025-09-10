@@ -1,0 +1,30 @@
+{
+  "name": "interactive-wall",
+  "version": "1.0.0",
+  "description": "Interactive art installation: QR -> words -> moderated -> projected A4 wall (real-time).",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "initdb": "node scripts/initdb.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "bad-words": "^3.0.4",
+    "compression": "^1.7.4",
+    "dotenv": "^16.4.5",
+    "ejs": "^3.1.10",
+    "express": "^4.19.2",
+    "express-basic-auth": "^1.2.1",
+    "express-rate-limit": "^7.3.1",
+    "helmet": "^7.1.0",
+    "morgan": "^1.10.0",
+    "socket.io": "^4.7.5",
+    "better-sqlite3": "^9.6.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  }
+}

@@ -1,0 +1,22 @@
+<% include partials_head %>
+  <main class="container">
+    <h1 class="title">Share a few words</h1>
+    <form class="card" method="post" action="/submit">
+      <label for="text">Your words</label>
+      <textarea id="text" name="text" rows="6" maxlength="500" placeholder="Write a short thought, feeling, or phrase…"></textarea>
+      <div class="hint">Max ~500 characters. Keep it kind.</div>
+<div id="cf-turnstile" style="margin-top:12px;"></div>
+      <button class="btn" type="submit">Send</button>
+    </form>
+  </main>
+  <script>
+    // Tiny client-side safeguards
+    const ta = document.getElementById('text');
+    ta.addEventListener('input', () => {
+      // Limit line breaks and consecutive spaces
+      let v = ta.value.replace(/\s{3,}/g, '  ');
+      const lines = v.split(/\n/).slice(0, 12).join('\n');
+      if (lines !== v) ta.value = lines;
+    });
+  </script>
+<% include partials_foot %>

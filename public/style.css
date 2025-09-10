@@ -1,0 +1,58 @@
+:root{
+  --bg:#f6f6f7;
+  --fg:#111;
+  --muted:#666;
+  --ok:#0a7d39;
+  --danger:#9b1c1c;
+  --card:#fff;
+}
+.page{ margin:0; background:var(--bg); color:var(--fg); font-family:Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+.container{ max-width: 900px; margin: 0 auto; padding: 4vmin; }
+.center{ text-align:center; }
+.title{ font-weight:700; letter-spacing:-0.02em; }
+.card{ background:var(--card); border-radius:16px; padding:24px; box-shadow:0 10px 30px rgba(0,0,0,0.06); margin-top:16px; }
+label{ display:block; font-weight:600; margin-bottom:8px; }
+textarea{ width:100%; font: inherit; padding:12px; border-radius:12px; border:1px solid #ddd; min-height:140px; background:#fff; }
+.hint{ color:var(--muted); font-size:0.9rem; margin-top:8px; }
+.btn{ display:inline-block; padding:10px 16px; border-radius:10px; border:0; background:#111; color:#fff; font-weight:600; cursor:pointer; text-decoration:none; }
+.btn.small{ padding:6px 10px; font-size:0.9rem; }
+.btn.danger{ background:var(--danger); }
+.grid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(240px,1fr)); gap:14px; margin-top:16px; }
+.meta small{ color:var(--muted); }
+.flag{ background:#ffd166; color:#7a4d00; padding:2px 6px; border-radius:6px; }
+pre.content{ white-space:pre-wrap; font-family:inherit; line-height:1.25; }
+
+/* Wall (projection) */
+.wall{ height:100vh; width:100vw; padding:2vmin; overflow:auto; }
+.wall.dark{ --bg:#070708; --fg:#f1f1f2; --card:#0d0e11; }
+.tiles{
+  display:grid;
+  grid-template-columns: repeat(var(--cols, 5), 1fr);
+  gap: var(--gap, 1.5vmin);
+}
+.tile{
+  background:var(--card);
+  border-radius: 4px;
+  aspect-ratio: 210 / 297; /* A4 portrait */
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding: 2vmin;
+  box-shadow: 0 3px 18px rgba(0,0,0,0.22);
+  border:1px solid rgba(255,255,255,0.06);
+}
+.tile-inner{
+  font-size: var(--fs, 2.6vmin);
+  line-height: 1.2;
+  font-weight: 500;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 100%;
+  overflow: hidden;
+  text-align: center;
+}
+
+/* Admin tweaks */
+.actions{ display:inline-block; margin-right:8px; }
+.select{ display:block; margin-top:8px; color:var(--muted); }
+.card.ok{ border-left:4px solid var(--ok); }
