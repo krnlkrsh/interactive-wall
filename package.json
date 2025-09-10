@@ -9,7 +9,7 @@
     "initdb": "node scripts/initdb.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": "20.x"
   },
   "dependencies": {
     "bad-words": "^3.0.4",
