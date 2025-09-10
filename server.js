@@ -32,10 +32,12 @@ const Database = require('better-sqlite3');
         .filter(l => l && !l.startsWith('#'));
     } catch (e) { banned = []; }
 
-    function hasLink(text){
-      const re = /(https?:\\/\\/|www\\.|[\\w-]+\\.(com|net|org|io|co|info|biz|me|ai|gov|edu|uk|de|fr|ae)(\\b|\\/))/i;
-      return re.test(text);
-    }
+    function hasLink(text) {
+  // Detects any http(s)://... or www....
+  const re = /(https?:\/\/|www\.)\S+/i;
+  return re.test(text);
+}
+
     function containsBanned(text){
       const lower = text.toLocaleLowerCase();
       return banned.some(term => lower.includes(term));
