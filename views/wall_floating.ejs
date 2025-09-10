@@ -1,120 +1,155 @@
 <%- include('partials_head') %>
-  <main class="wall dark" style="padding:0; margin:0;">
-    <video id="bg-video" autoplay muted loop playsinline></video>
-    <div id="quotes-layer" class="quotes-layer"></div>
-  </main>
 
-  <script src="/socket.io/socket.io.js"></script>
-  <script>
-    // Read URL params with defaults
-    const params = new URLSearchParams(location.search);
-    const videoSrc   = params.get('video') || 'video/background.mp4'; // put file in /public/video/
-    const maxActive  = parseInt(params.get('maxActive') || '6', 10);
-    const fontsize   = params.get('fontsize') || '3vmin';  // eg 2.6vmin–4vmin
-    const fontMinPx  = parseInt(params.get('fontMinPx') || '24', 10);
-    const fontMaxPx  = parseInt(params.get('fontMaxPx') || '64', 10);
-    const fadeInSec  = parseFloat(params.get('fadeInSec') || '5');     // slow fade in
-    const visibleMin = parseFloat(params.get('visibleMin') || '30');   // stay on screen
-    const fadeOutMin = parseFloat(params.get('fadeOutMin') || '30');   // fade out length
-    const maxwVW     = parseFloat(params.get('maxw') || '40');         // max width in vw
-    const paddingV   = parseFloat(params.get('pad')  || '5');          // safe padding in vmin
+<style>
+  /* Fullscreen video background */
+  #bg-video{
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    object-fit: cover;
+    z-index: 0;
+    background: #000;
+  }
 
-    // Video
-    const video = document.getElementById('bg-video');
-    video.src = '/static/' + videoSrc;
-    video.onerror = () => { video.remove(); document.body.style.background = '#000'; };
+  /* Layer that holds floating quotes */
+  .quotes-layer{
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    padding: var(--pad, 5vmin);
+  }
 
-    const layer = document.getElementById('quotes-layer');
-    layer.style.setProperty('--pad', paddingV + 'vmin');
+  .quote{
+    position: absolute;
+    color: #f2f2f2;
+    text-shadow: 0 2px 18px rgba(0,0,0,0.65);
+    line-height: 1.2;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    user-select: none;
+    white-space: pre-wrap;
+    opacity: 0; /* will fade to 1 */
+  }
+</style>
 
-    // Active quotes registry
-    const active = new Set();
+<main class="wall dark" style="padding:0; margin:0;">
+  <video id="bg-video" autoplay muted loop playsinline></video>
+  <div id="quotes-layer" class="quotes-layer"></div>
+</main>
 
-    // Create a quote element
-    function makeQuote(text){
-      const q = document.createElement('div');
-      q.className = 'quote';
-      q.textContent = '“' + text + '”';
-      q.style.fontSize = `clamp(${fontMinPx}px, ${fontsize}, ${fontMaxPx}px)`;
-      q.style.maxWidth = maxwVW + 'vw';
-      q.style.opacity = '0';
-      q.style.transition = `opacity ${fadeInSec}s linear`;
-      return q;
-    }
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  // ---- URL params with sensible defaults ----
+  const params     = new URLSearchParams(location.search);
+  const videoSrc   = params.get('video') || 'video/background.mp4'; // file under /public/
+  const maxActive  = parseInt(params.get('maxActive') || '6', 10);
+  const fontsize   = params.get('fontsize') || '3vmin';             // 2.6–4vmin common
+  const fontMinPx  = parseInt(params.get('fontMinPx') || '24', 10);
+  const fontMaxPx  = parseInt(params.get('fontMaxPx') || '72', 10);
+  const fadeInSec  = parseFloat(params.get('fadeInSec') || '5');    // slow fade-in
+  const visibleMin = parseFloat(params.get('visibleMin') || '30');  // on-screen time
+  const fadeOutMin = parseFloat(params.get('fadeOutMin') || '30');  // fade-out length
+  const maxwVW     = parseFloat(params.get('maxw') || '40');        // max width in vw
+  const paddingV   = parseFloat(params.get('pad')  || '5');         // safe padding in vmin
 
-    // Place without overlapping others (simple best-effort)
-    function placeQuote(el){
-      el.style.visibility = 'hidden';
-      layer.appendChild(el);
-      // Get size
-      const box = el.getBoundingClientRect();
-      const padPx = Math.max(window.innerWidth, window.innerHeight) * (paddingV/100); // approx vmin
-      const W = window.innerWidth  - box.width  - padPx*2;
-      const H = window.innerHeight - box.height - padPx*2;
+  // ---- Video setup (served from /static which maps to /public) ----
+  const video = document.getElementById('bg-video');
+  video.src = '/static/' + videoSrc;
+  video.onerror = () => { video.remove(); document.body.style.background = '#000'; };
 
-      function collides(rect){
-        for (const other of active) {
-          const r = other.getBoundingClientRect();
-          if (!(rect.right < r.left || rect.left > r.right || rect.bottom < r.top || rect.top > r.bottom)) {
-            return true;
-          }
+  const layer = document.getElementById('quotes-layer');
+  layer.style.setProperty('--pad', paddingV + 'vmin');
+
+  // ---- Active quotes registry ----
+  const active = new Set();
+
+  // Create a quote element
+  function makeQuote(text){
+    const q = document.createElement('div');
+    q.className = 'quote';
+    q.textContent = '“' + text + '”';
+    q.style.fontSize = `clamp(${fontMinPx}px, ${fontsize}, ${fontMaxPx}px)`;
+    q.style.maxWidth = maxwVW + 'vw';
+    q.style.transition = `opacity ${fadeInSec}s linear`;
+    return q;
+  }
+
+  // Best-effort non-overlapping placement
+  function placeQuote(el){
+    el.style.visibility = 'hidden';
+    layer.appendChild(el);
+
+    // measure
+    const box = el.getBoundingClientRect();
+    const padPx = Math.max(window.innerWidth, window.innerHeight) * (paddingV/100); // approx vmin -> px
+    const W = window.innerWidth  - box.width  - padPx*2;
+    const H = window.innerHeight - box.height - padPx*2;
+
+    function collides(rect){
+      for (const other of active) {
+        const r = other.getBoundingClientRect();
+        if (!(rect.right < r.left || rect.left > r.right || rect.bottom < r.top || rect.top > r.bottom)) {
+          return true;
         }
-        return false;
       }
-
-      let tries = 40;
-      while (tries-- > 0) {
-        const left = padPx + Math.random() * Math.max(0, W);
-        const top  = padPx + Math.random() * Math.max(0, H);
-        el.style.left = left + 'px';
-        el.style.top  = top  + 'px';
-        const rect = el.getBoundingClientRect();
-        if (!collides(rect)) break;
-      }
-      el.style.visibility = '';
+      return false;
     }
 
-    // Show, hold, fade, remove
-    function runLifecycle(el){
-      active.add(el);
-      requestAnimationFrame(() => { el.style.opacity = '1'; }); // fade in
-      const visibleMs = visibleMin * 60 * 1000;
-      const fadeOutMs = fadeOutMin * 60 * 1000;
-      setTimeout(() => {
-        el.style.transition = `opacity ${fadeOutMs/1000}s linear`;
-        el.style.opacity = '0';
-        setTimeout(() => { active.delete(el); el.remove(); }, fadeOutMs + 500);
-      }, (fadeInSec * 1000) + visibleMs);
+    let tries = 40;
+    while (tries-- > 0) {
+      const left = padPx + Math.random() * Math.max(0, W);
+      const top  = padPx + Math.random() * Math.max(0, H);
+      el.style.left = left + 'px';
+      el.style.top  = top  + 'px';
+      const rect = el.getBoundingClientRect();
+      if (!collides(rect)) break;
     }
+    el.style.visibility = '';
+  }
 
-    // Spawn logic
-    function spawn(text){
-      if (!text || !text.trim()) return;
-      if (active.size >= maxActive) return; // simple cap
-      const el = makeQuote(text.trim());
-      placeQuote(el);
-      layer.appendChild(el);
-      runLifecycle(el);
-    }
+  // Show -> hold -> fade -> remove
+  function runLifecycle(el){
+    active.add(el);
+    requestAnimationFrame(() => { el.style.opacity = '1'; }); // fade in
+    const visibleMs = visibleMin * 60 * 1000;
+    const fadeOutMs = fadeOutMin * 60 * 1000;
+    setTimeout(() => {
+      el.style.transition = `opacity ${fadeOutMs/1000}s linear`;
+      el.style.opacity = '0';
+      setTimeout(() => { active.delete(el); el.remove(); }, fadeOutMs + 500);
+    }, (fadeInSec * 1000) + visibleMs);
+  }
 
-    // Load initial approved items and seed a few
-    async function loadInitial(){
-      const res = await fetch('/api/approved');
-      const data = await res.json();
-      const items = data.items || [];
-      // Seed up to maxActive, use the most recent ones
-      const pick = items.slice(-maxActive);
-      pick.forEach((it, i) => setTimeout(() => spawn(it.text), i*3000));
-    }
+  // Spawn logic
+  function spawn(text){
+    if (!text || !text.trim()) return;
+    if (active.size >= maxActive) return;
+    const el = makeQuote(text.trim());
+    placeQuote(el);
+    layer.appendChild(el);
+    runLifecycle(el);
+  }
 
-    // Live approvals
-    function bootSocket(){
-      const socket = io();
-      socket.on('approved_item', (item) => {
-        spawn(item.text);
-      });
-    }
+  // Initial seed
+  async function loadInitial(){
+    const res = await fetch('/api/approved');
+    const data = await res.json();
+    const items = data.items || [];
+    const pick = items.slice(-maxActive); // latest few
+    pick.forEach((it, i) => setTimeout(() => spawn(it.text), i*3000));
+  }
 
-    loadInitial().then(bootSocket);
-  </script>
+  // Live updates from approvals
+  function bootSocket(){
+    const socket = io();
+    socket.on('approved_item', (item) => {
+      spawn(item.text);
+    });
+  }
+
+  loadInitial().then(bootSocket);
+</script>
+
 <%- include('partials_foot') %>
