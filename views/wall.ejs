@@ -1,4 +1,4 @@
-<% include partials_head %>
+<%- include('partials_head') %>
   <main class="wall <%= theme %>">
     <div id="wall" class="tiles" style="--cols:<%= columns %>; --gap:<%= gap %>; --fs:<%= fontsize %>"></div>
   </main>
@@ -29,4 +29,4 @@
     }
     loadInitial().then(bootSocket);
   </script>
-<% include partials_foot %>
+<%- include('partials_foot') %>
