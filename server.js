@@ -152,6 +152,9 @@ app.get('/', (req, res) => res.redirect('/submit'));
 app.get('/submit', (req, res) => {
   res.render('submit', { title: 'Share your words', TURNSTILE_SITE_KEY });
 });
+app.get('/wall-floating', (req, res) => {
+  res.render('wall_floating', { title: 'Floating Quotes' });
+});
 
 app.post('/submit', (req, res) => {
   const text = sanitizeText(req.body.text || '');
