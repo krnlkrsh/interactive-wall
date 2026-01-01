@@ -302,6 +302,19 @@ app.post('/admin/reject/:id', adminAuth, (req, res) => {
   res.redirect('/admin');
 });
 
+app.post('/admin/remove/:id', adminAuth, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+
+  // Mark as removed: no longer approved and considered rejected
+  db.prepare('UPDATE submissions SET approved=0, rejected=1 WHERE id=?').run(id);
+
+  // (Optional) in future we could emit a "removed_item" event here if the wall needs live removal
+  // For now, it will simply disappear from /api/approved and from the wall on next refresh.
+
+  res.redirect('/admin');
+});
+
+
 app.post('/admin/bulk', adminAuth, (req, res) => {
   const ids = (req.body.ids || '')
     .split(',')
