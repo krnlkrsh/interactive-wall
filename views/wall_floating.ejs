@@ -2,7 +2,7 @@
 
 <style>
   /* Fullscreen video background */
-  #bg-video{
+  #bg-video {
     position: fixed;
     inset: 0;
     width: 100vw;
@@ -13,7 +13,7 @@
   }
 
   /* Layer that holds floating quotes */
-  .quotes-layer{
+  .quotes-layer {
     position: fixed;
     inset: 0;
     z-index: 1;
@@ -21,7 +21,7 @@
     padding: var(--pad, 5vmin);
   }
 
-  .quote{
+  .quote {
     position: absolute;
     color: #f2f2f2;
     text-shadow: 0 2px 18px rgba(0,0,0,0.65);
@@ -35,7 +35,7 @@
 </style>
 
 <main class="wall dark" style="padding:0; margin:0;">
-  <video id="bg-video" autoplay muted playsinline></video>
+  <video id="bg-video" autoplay muted loop playsinline></video>
   <div id="quotes-layer" class="quotes-layer"></div>
 </main>
 
@@ -59,49 +59,23 @@
   video.src = '/static/' + videoSrc;
   video.onerror = () => { video.remove(); document.body.style.background = '#000'; };
 
-  // --- Ping-pong loop: forward -> backward -> forward ---
-  function playForward() {
-    video.playbackRate = 1;
-    video.currentTime = 0;
-    video.play();
-  }
-
-  function playBackward() {
-    video.playbackRate = -1;
-    if (!isNaN(video.duration)) {
-      video.currentTime = Math.max(0, video.duration - 0.01);
-    }
-    video.play();
-  }
-
-  video.addEventListener('loadedmetadata', () => {
-    playForward();
-  });
-
-  video.addEventListener('ended', () => {
-    if (video.playbackRate > 0) {
-      playBackward();
-    } else {
-      playForward();
-    }
-  });
-
-  video.addEventListener('timeupdate', () => {
-    if (video.playbackRate < 0 && video.currentTime <= 0.02) {
-      playForward();
-    }
-  });
-
   const layer = document.getElementById('quotes-layer');
   layer.style.setProperty('--pad', paddingV + 'vmin');
 
   // ---- Active quotes registry ----
-  const active = new Set();
+  const active = new Set(); // holds DOM elements
 
-  // Create a quote element
-  function makeQuote(text){
+  // Create a quote element from an item { id, text, created_at }
+  function makeQuote(item) {
+    const text = (item && item.text) ? item.text : '';
     const q = document.createElement('div');
     q.className = 'quote';
+
+    // store DB id on the element so we can remove it later
+    if (item && item.id != null) {
+      q.dataset.id = String(item.id);
+    }
+
     q.textContent = '“' + text + '”';
     q.style.fontSize = `clamp(${fontMinPx}px, ${fontsize}, ${fontMaxPx}px)`;
     q.style.maxWidth = maxwVW + 'vw';
@@ -110,12 +84,13 @@
   }
 
   // Best-effort non-overlapping placement
-  function placeQuote(el){
+  function placeQuote(el) {
     el.style.visibility = 'hidden';
     layer.appendChild(el);
 
+    // measure
     const box = el.getBoundingClientRect();
-    const padPx = Math.max(window.innerWidth, window.innerHeight) * (paddingV/100);
+    const padPx = Math.max(window.innerWidth, window.innerHeight) * (paddingV/100); // approx vmin -> px
     const W = window.innerWidth  - box.width  - padPx*2;
     const H = window.innerHeight - box.height - padPx*2;
 
@@ -142,42 +117,70 @@
   }
 
   // Show -> hold -> fade -> remove
-  function runLifecycle(el){
+  function runLifecycle(el) {
     active.add(el);
     requestAnimationFrame(() => { el.style.opacity = '1'; }); // fade in
     const visibleMs = visibleMin * 60 * 1000;
     const fadeOutMs = fadeOutMin * 60 * 1000;
     setTimeout(() => {
+      // if element was already removed (by admin), skip
+      if (!el.isConnected) {
+        active.delete(el);
+        return;
+      }
       el.style.transition = `opacity ${fadeOutMs/1000}s linear`;
       el.style.opacity = '0';
-      setTimeout(() => { active.delete(el); el.remove(); }, fadeOutMs + 500);
+      setTimeout(() => {
+        active.delete(el);
+        if (el.isConnected) el.remove();
+      }, fadeOutMs + 500);
     }, (fadeInSec * 1000) + visibleMs);
   }
 
-  // Spawn logic
-  function spawn(text){
-    if (!text || !text.trim()) return;
+  // Spawn logic: expects full item { id, text, created_at }
+  function spawn(item) {
+    if (!item || !item.text || !item.text.trim()) return;
     if (active.size >= maxActive) return;
-    const el = makeQuote(text.trim());
+    const el = makeQuote(item);
     placeQuote(el);
     layer.appendChild(el);
     runLifecycle(el);
   }
 
   // Initial seed
-  async function loadInitial(){
+  async function loadInitial() {
     const res = await fetch('/api/approved');
     const data = await res.json();
     const items = data.items || [];
-    const pick = items.slice(-maxActive);
-    pick.forEach((it, i) => setTimeout(() => spawn(it.text), i*3000));
+    const pick = items.slice(-maxActive); // latest few
+    pick.forEach((it, i) => setTimeout(() => spawn(it), i * 3000));
   }
 
-  // Live updates from approvals
-  function bootSocket(){
+  // Handle live approvals and removals
+  function bootSocket() {
     const socket = io();
+
+    // New approved item
     socket.on('approved_item', (item) => {
-      spawn(item.text);
+      spawn(item);
+    });
+
+    // Removed item
+    socket.on('removed_item', (payload) => {
+      if (!payload || payload.id == null) return;
+      const targetId = String(payload.id);
+
+      const toRemove = [];
+      active.forEach(el => {
+        if (el.dataset && el.dataset.id === targetId) {
+          toRemove.push(el);
+        }
+      });
+
+      toRemove.forEach(el => {
+        active.delete(el);
+        if (el.isConnected) el.remove();
+      });
     });
   }
 
