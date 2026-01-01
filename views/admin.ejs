@@ -1,27 +1,38 @@
 <%- include('partials_head') %>
   <main class="container">
     <h1>Moderation</h1>
+
     <section>
       <h2>Pending (<%= pending.length %>)</h2>
+
       <form method="post" action="/admin/bulk" class="bulk-actions">
         <input type="hidden" name="ids" id="bulk-ids" value="">
         <input type="hidden" name="action" id="bulk-action" value="approve">
         <button class="btn" type="button" onclick="bulk('approve')">Bulk Approve</button>
         <button class="btn danger" type="button" onclick="bulk('reject')">Bulk Reject</button>
       </form>
+
       <div class="grid">
         <% pending.forEach(p => { const reason = p.flag_reason || (p.auto_flagged ? "profanity" : ""); %>
           <div class="card">
             <div class="meta">
-              <small>#<%= p.id %> • <%= p.created_at %> <% if (p.auto_flagged) { %> • <span class="flag">auto-flagged: <%= reason %></span><% } %></small>
+              <small>#<%= p.id %> • <%= p.created_at %>
+                <% if (p.auto_flagged) { %>
+                  • <span class="flag">auto-flagged: <%= reason %></span>
+                <% } %>
+              </small>
             </div>
+
             <pre class="content"><%= p.text %></pre>
+
             <form class="actions" method="post" action="/admin/approve/<%= p.id %>">
               <button class="btn small" type="submit">Approve</button>
             </form>
+
             <form class="actions" method="post" action="/admin/reject/<%= p.id %>">
               <button class="btn small danger" type="submit">Reject</button>
             </form>
+
             <label class="select">
               <input type="checkbox" class="sel" value="<%= p.id %>"> select
             </label>
@@ -32,18 +43,32 @@
 
     <section>
       <h2>Recently approved</h2>
+
       <div class="grid">
         <% approved.forEach(a => { %>
           <div class="card ok">
             <div class="meta">
               <small>#<%= a.id %> • <%= a.created_at %></small>
             </div>
+
             <pre class="content"><%= a.text %></pre>
+
+            <!-- NEW: remove button -->
+            <form class="actions" method="post" action="/admin/remove/<%= a.id %>">
+              <button
+                class="btn small danger"
+                type="submit"
+                onclick="return confirm('Remove this post from the wall?');">
+                  Remove from wall
+              </button>
+            </form>
+
           </div>
         <% }) %>
       </div>
     </section>
   </main>
+
   <script>
     function bulk(action) {
       const ids = Array.from(document.querySelectorAll('.sel:checked')).map(x => x.value);
