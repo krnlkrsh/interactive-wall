@@ -2,3 +2,353 @@
 # Examples:
 slur-example
 badword-example
+كس
+كسك
+كس امك
+كس امك
+كس أمك
+كسمك
+كسم امك
+كسم امك
+كس اختك
+كس أختك
+كس اختك
+كس اختك
+كس اخته
+كس اخته
+كسم اختك
+كسم أختك
+نيك
+نيكك
+نيك امك
+نيك أمك
+نيك امك
+نيك اختك
+نيك أختك
+نيك اختك
+انك
+انكك
+انك امك
+انك أمك
+انك اختك
+انك أختك
+انك فيك
+انيكك
+انيك امك
+انيك اختك
+زب
+زبك
+زبه
+زبي
+طيز
+طيزك
+طيزو
+طيزي
+شرموطة
+شرموطه
+شرموطه
+شرموطة
+شراميط
+شراميط
+عاهرة
+عاهره
+قحبة
+قحبه
+ابن الشرموطة
+ابن الشرموطه
+ابن الشرموطة
+ابن الشرموطه
+ابن القحبة
+ابن القحبه
+ابن الكلب
+ابن الكلب
+ابن الحمار
+ابن الحمار
+ابن الزانية
+ابن الزانيه
+ابن الزنا
+ولد زنا
+ابن الحرام
+حرامي
+واطي
+واطية
+تافه
+قليل ادب
+قليل الأدب
+سافل
+منحط
+خرا
+خرا
+خرا عليك
+يخورف
+قرف
+مقرف
+معفن
+كلب
+كـلب
+كالب
+حمار
+حمير
+غبي
+أهبل
+اهبل
+نذل
+وضيع
+وسخ
+وسخه
+وسخة
+قذر
+قذرة
+بقرة
+ثور
+تيس
+حيوان
+قرد
+خنزير
+خنازير
+يلعن امك
+يلعن أمك
+يلعن ابوك
+يلعن أبوك
+يلعن شرفك
+الله يلعنك
+تف
+تفو
+تفو عليك
+انقلع
+انقلعي
+اطلع برا
+برا
+غور
+اختك
+اختك مايلة
+امك
+امك مايلة
+
+kess
+kes
+kiss
+kss
+ksss
+kos
+koss
+kess emmak
+kes emmak
+kess ommak
+kes ommak
+kss emmak
+kss ommak
+kess omak
+kes omak
+kess omk
+kes omk
+kes immak
+kess immak
+kes emak
+kess emak
+kess emmou
+kess emmo
+kes emmo
+
+kess okhtak
+kes okhtak
+kess ukhtak
+kes ukhtak
+kess ekhtak
+kes ekhtak
+kess okhtk
+kes okhtk
+
+nik
+nek
+neek
+nikk
+nikak
+nekak
+nik fik
+nek fek
+nik emmak
+nek emmak
+nik ommak
+nek ommak
+nik omak
+nek omak
+nik omk
+nek omk
+nik okhtak
+nek okhtak
+nik ukhtak
+nek ukhtak
+
+zib
+zeb
+zob
+zubb
+zebak
+zibak
+zebbo
+zebo
+zibi
+zeby
+
+tayz
+teez
+tiez
+teezz
+
+sharmouta
+sharmoota
+sharmuta
+sharmoutah
+sharmota
+sharmout
+sharmoot
+sharmut
+
+3ahera
+3ahra
+3ahrah
+ahara
+a7era
+a7rah
+
+ibn sharmouta
+ibn sharmoota
+ibn sharmuta
+ibn el kelb
+ibn el kalb
+ibn al kalb
+ibn al kelb
+ibn el himar
+ibn el 7imar
+ibn al 7imar
+ibn al himar
+ibn el haram
+ibn al haram
+walad haram
+walad 7aram
+walad zina
+walad zena
+
+khara
+5ara
+5ra
+khra
+5ra 3leik
+khara 3leik
+
+wateh
+wata
+wati
+wa6i
+wa6eh
+
+nadel
+nafel
+nafelh
+
+tfu
+tf
+tfo
+toff
+tofff
+tfu 3leik
+
+enkel3
+enkela3
+enkele3
+enkale3
+en2le3
+en2la3
+enkale2
+enkal3
+
+itla3 barra
+etla3 barra
+2tla3 barra
+itla3
+2tla3
+barra
+bra
+
+allah yel3an
+allah yel3anak
+allahyel3anak
+yel3an ommak
+yel3an omak
+yel3an okhtak
+
+7imar
+7mar
+himar
+hmar
+7mara
+
+kalb
+kelb
+kaleb
+kleb
+klb
+
+5anzeer
+khanzeer
+khanzeir
+5anzeir
+khinzir
+
+8habi
+ghabi
+ghaby
+8abi
+8aby
+
+ma3affan
+m3affan
+ma3affin
+m3affin
+
+2eref
+2ref
+eref
+aref
+
+3arss
+3ars
+ars
+arss
+
+ba2ara
+ba2ra
+ba2arah
+
+kos ommak
+kos omak
+kos emak
+kos omk
+kos okhtak
+kos ukhtak
+
+2os
+2osk
+2os omak
+2os ommak
+2os emak
+2os okhtak
+
+nek omak
+nek emak
+nek omk
+nek okhtak
+nekk
+nekkk
+
+wlad zina
+wlaz zena
+wlaz zina
+wlaz zena
+
+zani
+zania
+zaniah
+zaniya
+zanyeh
