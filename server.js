@@ -186,30 +186,54 @@ app.get('/wall-floating', (req, res) => {
 app.post('/submit', async (req, res) => {
   const text = sanitizeText(req.body.text || '');
   if (!text) {
-    return res.status(400).render('error', { message: 'Please enter a few words.' });
+    return res
+      .status(400)
+      .render('error', { message: 'Please enter a few words.' });
   }
 
-  // Start with bad-words filter
+  // 1) Start with bad-words filter
   let auto_flagged = filter.isProfane(text) ? 1 : 0;
 
-  // If not already flagged, ask OpenAI moderation
+  // 2) If not already flagged, call OpenAI moderation
   if (!auto_flagged) {
-    const mod = await aiModerationFlag(text);
-    if (mod.flagged) {
-      auto_flagged = 1;
+    try {
+      const mod = await aiModerationFlag(text);
+      if (mod.flagged) {
+        auto_flagged = 1;
+      }
+    } catch (e) {
+      console.error('AI moderation failed', e);
+      // Optional: if you want to be strict, you could set auto_flagged = 1 here.
     }
   }
+
+  // 3) Auto-approve if not flagged
+  const approved = auto_flagged ? 0 : 1;
 
   const ip = req.ip;
   const ua = req.get('user-agent') || '';
 
+  // 4) Insert both auto_flagged and approved
   const stmt = db.prepare(
-    'INSERT INTO submissions (text, ip, user_agent, auto_flagged) VALUES (?, ?, ?, ?)'
+    'INSERT INTO submissions (text, ip, user_agent, auto_flagged, approved) VALUES (?, ?, ?, ?, ?)'
   );
-  stmt.run(text, ip, ua, auto_flagged);
+  const info = stmt.run(text, ip, ua, auto_flagged, approved);
+
+  // 5) If auto-approved, immediately emit to the wall
+  if (approved === 1 && info.lastInsertRowid) {
+    const item = db
+      .prepare(
+        'SELECT id, text, created_at FROM submissions WHERE id = ?'
+      )
+      .get(info.lastInsertRowid);
+    if (item) {
+      io.emit('approved_item', item);
+    }
+  }
 
   res.render('thanks', { title: 'Thank you!' });
 });
+
 
 // JSON feed for approved items
 app.get('/api/approved', (req, res) => {
