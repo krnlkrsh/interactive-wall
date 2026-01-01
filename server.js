@@ -12,8 +12,12 @@ const filter = new Filter();
 const http = require('http');
 const { Server } = require('socket.io');
 const Database = require('better-sqlite3');
-    const fs = require('fs');
-    const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args)).catch(() => null);
+const fs = require('fs');
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args)).catch(() => null);
+const OpenAI = require('openai');
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
 
     // Moderation knobs
     const MAX_PER_MINUTE = parseInt(process.env.MAX_PER_MINUTE || '1', 10);
@@ -54,6 +58,29 @@ const Database = require('better-sqlite3');
       v = v.split(/\\n/).slice(0,12).map(l => l.trimEnd()).join('\\n');
       return v.trim();
     }
+async function aiModerationFlag(text) {
+  // If no API key is set, skip AI moderation
+  if (!process.env.OPENAI_API_KEY) {
+    return { flagged: false };
+  }
+
+  try {
+    const response = await openai.moderations.create({
+      model: 'omni-moderation-latest',
+      input: text
+    });
+
+    const result = response.results[0];
+    return {
+      flagged: !!result.flagged,
+      categories: result.categories
+    };
+  } catch (err) {
+    console.error('OpenAI moderation error', err);
+    // On error, fail open (don’t block the user), just log it
+    return { flagged: false, error: true };
+  }
+}
 
     async function verifyTurnstile(token, ip){
       if (!TURNSTILE_SECRET_KEY) return true; // disabled
@@ -156,16 +183,29 @@ app.get('/wall-floating', (req, res) => {
   res.render('wall_floating', { title: 'Floating Quotes' });
 });
 
-app.post('/submit', (req, res) => {
+app.post('/submit', async (req, res) => {
   const text = sanitizeText(req.body.text || '');
-  if (!text) return res.status(400).render('error', { message: 'Please enter a few words.' });
+  if (!text) {
+    return res.status(400).render('error', { message: 'Please enter a few words.' });
+  }
 
-  // Simple auto-flag using bad-words
-  const auto_flagged = filter.isProfane(text) ? 1 : 0;
+  // Start with bad-words filter
+  let auto_flagged = filter.isProfane(text) ? 1 : 0;
+
+  // If not already flagged, ask OpenAI moderation
+  if (!auto_flagged) {
+    const mod = await aiModerationFlag(text);
+    if (mod.flagged) {
+      auto_flagged = 1;
+    }
+  }
+
   const ip = req.ip;
   const ua = req.get('user-agent') || '';
 
-  const stmt = db.prepare('INSERT INTO submissions (text, ip, user_agent, auto_flagged) VALUES (?, ?, ?, ?)');
+  const stmt = db.prepare(
+    'INSERT INTO submissions (text, ip, user_agent, auto_flagged) VALUES (?, ?, ?, ?)'
+  );
   stmt.run(text, ip, ua, auto_flagged);
 
   res.render('thanks', { title: 'Thank you!' });
