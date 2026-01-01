@@ -334,6 +334,7 @@ kos ukhtak
 2os ommak
 2os emak
 2os okhtak
+zeb
 
 nek omak
 nek emak
