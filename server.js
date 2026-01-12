@@ -38,16 +38,60 @@ try {
   banned = [];
 }
 
+// -------- Safer banned matching (prevents "ass" in "pass") --------
+function escapeRegex(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Define "word boundary" for Unicode letters/numbers, not ASCII \b
+const WORD_CHARS = `[\\p{L}\\p{N}_]`;
+const LEFT_BOUNDARY = `(?<!${WORD_CHARS})`;
+const RIGHT_BOUNDARY = `(?!${WORD_CHARS})`;
+
+// Build per-term regex matchers once
+const bannedMatchers = banned
+  .map((raw) => {
+    const term = String(raw || '').trim();
+    if (!term) return null;
+
+    const normalized = term.normalize('NFKC').toLowerCase();
+
+    // Treat multi-space as flexible whitespace
+    const parts = normalized.split(/\s+/).filter(Boolean);
+    const escaped = parts.map(escapeRegex).join('\\s+');
+
+    // For very short terms (<= 3 chars), force strict boundaries
+    const needsStrict = parts.join('').length <= 3;
+
+    const pattern = needsStrict
+      ? `${LEFT_BOUNDARY}${escaped}${RIGHT_BOUNDARY}`
+      : `${LEFT_BOUNDARY}${escaped}${RIGHT_BOUNDARY}`;
+
+    return { term, re: new RegExp(pattern, 'iu') };
+  })
+  .filter(Boolean);
+
+// Normalize input for matching
+function normalizeForMatch(text) {
+  return String(text || '')
+    .normalize('NFKC')
+    .toLowerCase();
+}
+
+
 // Simple URL / link detector
 function hasLink(text) {
   const re = /(https?:\/\/|www\.)\S+/i;
   return re.test(text);
 }
-
 function containsBanned(text) {
-  const lower = text.toLocaleLowerCase();
-  return banned.some(term => lower.includes(term));
+  const t = normalizeForMatch(text);
+  for (const m of bannedMatchers) {
+    if (m.re.test(t)) return true;
+  }
+  return false;
 }
+
 
 function excessiveCaps(text) {
   const letters = text.replace(/[^A-Za-z\p{L}]/gu, '');
