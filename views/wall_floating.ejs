@@ -30,7 +30,7 @@
     letter-spacing: 0.2px;
     user-select: none;
     white-space: pre-wrap;
-    opacity: 0; /* will fade to 1 */
+    opacity: 0; /* will fade to target opacity */
   }
 </style>
 
@@ -44,7 +44,7 @@
   // ---- URL params with sensible defaults ----
   const params     = new URLSearchParams(location.search);
   const videoSrc   = params.get('video') || 'video/background.mp4'; // file under /public/
-  const maxActive  = parseInt(params.get('maxActive') || '6', 10);
+  const maxActive  = 10; // hard lock to 10
   const fontsize   = params.get('fontsize') || '3vmin';             // 2.6–4vmin common
   const fontMinPx  = parseInt(params.get('fontMinPx') || '24', 10);
   const fontMaxPx  = parseInt(params.get('fontMaxPx') || '72', 10);
@@ -63,7 +63,8 @@
   layer.style.setProperty('--pad', paddingV + 'vmin');
 
   // ---- Active quotes registry ----
-  const active = new Set(); // holds DOM elements
+  const active = new Set(); // holds DOM elements in insertion order (oldest -> newest)
+  let lastIds = [];         // tracks the last server list of approved IDs (newest -> oldest)
 
   // Create a quote element from an item { id, text, created_at }
   function makeQuote(item) {
@@ -116,12 +117,32 @@
     el.style.visibility = '';
   }
 
+  // Fade older items so the oldest is faintest
+  function applyOpacityByAge() {
+    const els = Array.from(active); // oldest -> newest
+    const n = els.length;
+    if (n === 0) return;
+
+    // oldest: 0.15, newest: 1.0
+    for (let i = 0; i < n; i++) {
+      const t = (n === 1) ? 1 : (i / (n - 1));       // 0 oldest, 1 newest
+      const op = 0.15 + (t * 0.85);
+      els[i].style.opacity = op.toFixed(2);
+    }
+  }
+
   // Show -> hold -> fade -> remove
   function runLifecycle(el) {
     active.add(el);
-    requestAnimationFrame(() => { el.style.opacity = '1'; }); // fade in
+
+    // fade in to whatever opacity applyOpacityByAge sets
+    requestAnimationFrame(() => {
+      applyOpacityByAge();
+    });
+
     const visibleMs = visibleMin * 60 * 1000;
     const fadeOutMs = fadeOutMin * 60 * 1000;
+
     setTimeout(() => {
       // if element was already removed (by admin), skip
       if (!el.isConnected) {
@@ -133,6 +154,7 @@
       setTimeout(() => {
         active.delete(el);
         if (el.isConnected) el.remove();
+        applyOpacityByAge();
       }, fadeOutMs + 500);
     }, (fadeInSec * 1000) + visibleMs);
   }
@@ -140,20 +162,59 @@
   // Spawn logic: expects full item { id, text, created_at }
   function spawn(item) {
     if (!item || !item.text || !item.text.trim()) return;
-    if (active.size >= maxActive) return;
+
+    // If full, remove oldest so the newest always appears
+    if (active.size >= maxActive) {
+      const oldest = active.values().next().value;
+      if (oldest) {
+        active.delete(oldest);
+        if (oldest.isConnected) oldest.remove();
+      }
+    }
+
     const el = makeQuote(item);
     placeQuote(el);
     layer.appendChild(el);
     runLifecycle(el);
   }
 
+  // Rebuild wall from server list (newest -> oldest)
+  function rebuildFrom(itemsNewestFirst) {
+    // Clear current
+    active.forEach(el => {
+      if (el && el.isConnected) el.remove();
+    });
+    active.clear();
+
+    // Spawn oldest -> newest to preserve insertion order meaningfully
+    const items = itemsNewestFirst.slice(0, maxActive).reverse();
+    items.forEach((it, i) => setTimeout(() => spawn(it), i * 250));
+  }
+
+  // Poll approved list every 3 seconds as a safety net
+  async function pollApproved() {
+    try {
+      const res = await fetch('/api/approved?_=' + Date.now(), { cache: 'no-store' });
+      const data = await res.json();
+      const items = data.items || [];
+
+      // Server should return newest -> oldest
+      const ids = items.slice(0, maxActive).map(it => String(it.id));
+
+      const unchanged = (ids.length === lastIds.length) && ids.every((id, i) => id === lastIds[i]);
+      if (unchanged) return;
+
+      lastIds = ids;
+      rebuildFrom(items.slice(0, maxActive));
+    } catch (e) {
+      console.warn('pollApproved failed', e);
+    }
+  }
+
   // Initial seed
   async function loadInitial() {
-    const res = await fetch('/api/approved');
-    const data = await res.json();
-    const items = data.items || [];
-    const pick = items.slice(-maxActive); // latest few
-    pick.forEach((it, i) => setTimeout(() => spawn(it), i * 3000));
+    await pollApproved();
+    setInterval(pollApproved, 3000);
   }
 
   // Handle live approvals and removals
@@ -162,7 +223,10 @@
 
     // New approved item
     socket.on('approved_item', (item) => {
+      // Spawn immediately for responsiveness
       spawn(item);
+      // Also poll shortly after to guarantee we are in sync and enforce limit
+      setTimeout(pollApproved, 300);
     });
 
     // Removed item
@@ -181,6 +245,9 @@
         active.delete(el);
         if (el.isConnected) el.remove();
       });
+
+      applyOpacityByAge();
+      setTimeout(pollApproved, 300);
     });
   }
 
