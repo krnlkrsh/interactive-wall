@@ -296,6 +296,32 @@ app.get('/admin', adminAuth, (req, res) => {
   ).all();
   res.render('admin', { title: 'Moderation', pending, approved });
 });
+// Admin JSON state for live-updating the moderation page (polled by admin.ejs)
+app.get('/api/admin/state', adminAuth, (req, res) => {
+  try {
+    res.set({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'Surrogate-Control': 'no-store'
+    });
+
+    const pending = db.prepare(
+      'SELECT id, text, created_at, auto_flagged FROM submissions WHERE approved=0 AND rejected=0 ORDER BY id DESC LIMIT 200'
+    ).all();
+
+    const approved = db.prepare(
+      'SELECT id, text, created_at FROM submissions WHERE approved=1 AND rejected=0 ORDER BY id DESC LIMIT 100'
+    ).all();
+
+    const sig = `p${pending[0] ? pending[0].id : 0}-a${approved[0] ? approved[0].id : 0}-pc${pending.length}-ac${approved.length}`;
+
+    res.json({ sig, pending, approved });
+  } catch (e) {
+    res.status(500).json({ error: 'failed' });
+  }
+});
+
 
 app.post('/admin/approve/:id', adminAuth, (req, res) => {
   const id = parseInt(req.params.id, 10);
