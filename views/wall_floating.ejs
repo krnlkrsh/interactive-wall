@@ -30,7 +30,8 @@
     letter-spacing: 0.2px;
     user-select: none;
     white-space: pre-wrap;
-    opacity: 0; /* will fade to target opacity */
+    opacity: 0;
+    will-change: transform, left, top, opacity;
   }
 </style>
 
@@ -45,16 +46,25 @@
   const params     = new URLSearchParams(location.search);
   const videoSrc   = params.get('video') || 'video/background.mp4'; // file under /public/
   const maxActive  = 10; // hard lock to 10
-  const fontsize   = params.get('fontsize') || '3vmin';             // 2.6–4vmin common
+  const fontsize   = params.get('fontsize') || '3vmin';
   const fontMinPx  = parseInt(params.get('fontMinPx') || '24', 10);
   const fontMaxPx  = parseInt(params.get('fontMaxPx') || '72', 10);
-  const fadeInSec  = parseFloat(params.get('fadeInSec') || '5');    // slow fade-in
-  const visibleMin = parseFloat(params.get('visibleMin') || '30');  // on-screen time
-  const fadeOutMin = parseFloat(params.get('fadeOutMin') || '30');  // fade-out length
-  const maxwVW     = parseFloat(params.get('maxw') || '40');        // max width in vw
-  const paddingV   = parseFloat(params.get('pad')  || '5');         // safe padding in vmin
+  const fadeInSec  = parseFloat(params.get('fadeInSec') || '5');
+  const visibleMin = parseFloat(params.get('visibleMin') || '30');
+  const fadeOutMin = parseFloat(params.get('fadeOutMin') || '30');
+  const maxwVW     = parseFloat(params.get('maxw') || '40');
+  const paddingV   = parseFloat(params.get('pad')  || '5');
 
-  // ---- Video setup (served from /static which maps to /public) ----
+  // gentle separation tuning
+  const nudgeEveryMs = 120;          // how often we run separation
+  const nudgeStepPx  = 1.2;          // max px per tick
+  const nudgeRangePx = 18;           // start nudging when boxes overlap or are this close
+
+  // opacity tuning
+  const minOpacityAtFull = 0.22;     // oldest opacity when there are 10
+  const minOpacityAtLow  = 0.85;     // oldest opacity when there are 1–2
+
+  // ---- Video setup ----
   const video = document.getElementById('bg-video');
   video.src = '/static/' + videoSrc;
   video.onerror = () => { video.remove(); document.body.style.background = '#000'; };
@@ -63,8 +73,38 @@
   layer.style.setProperty('--pad', paddingV + 'vmin');
 
   // ---- Active quotes registry ----
-  const active = new Set(); // holds DOM elements in insertion order (oldest -> newest)
-  let lastIds = [];         // tracks the last server list of approved IDs (newest -> oldest)
+  // Keep order: oldest -> newest
+  const active = new Set();
+  // Fast lookup by id
+  const byId = new Map();
+  // Tracks last server list (newest -> oldest)
+  let lastIds = [];
+
+  function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
+
+  function getPadPx() {
+    // Keep same approximation you used
+    return Math.max(window.innerWidth, window.innerHeight) * (paddingV / 100);
+  }
+
+  function getRectFor(el) {
+    return el.getBoundingClientRect();
+  }
+
+  function collidesRect(rect, ignoreEl = null) {
+    for (const other of active) {
+      if (!other || !other.isConnected) continue;
+      if (ignoreEl && other === ignoreEl) continue;
+      const r = getRectFor(other);
+      const overlap =
+        rect.left < (r.right) &&
+        rect.right > (r.left) &&
+        rect.top < (r.bottom) &&
+        rect.bottom > (r.top);
+      if (overlap) return true;
+    }
+    return false;
+  }
 
   // Create a quote element from an item { id, text, created_at }
   function makeQuote(item) {
@@ -72,7 +112,6 @@
     const q = document.createElement('div');
     q.className = 'quote';
 
-    // store DB id on the element so we can remove it later
     if (item && item.id != null) {
       q.dataset.id = String(item.id);
     }
@@ -84,167 +123,230 @@
     return q;
   }
 
-  // Best-effort non-overlapping placement
+  // Best-effort non-overlapping placement (spawn-time only)
   function placeQuote(el) {
     el.style.visibility = 'hidden';
     layer.appendChild(el);
 
-    // measure
     const box = el.getBoundingClientRect();
-    const padPx = Math.max(window.innerWidth, window.innerHeight) * (paddingV/100); // approx vmin -> px
-    const W = window.innerWidth  - box.width  - padPx*2;
-    const H = window.innerHeight - box.height - padPx*2;
+    const padPx = getPadPx();
+    const W = window.innerWidth  - box.width  - padPx * 2;
+    const H = window.innerHeight - box.height - padPx * 2;
 
-    function collides(rect){
-      for (const other of active) {
-        const r = other.getBoundingClientRect();
-        if (!(rect.right < r.left || rect.left > r.right || rect.bottom < r.top || rect.top > r.bottom)) {
-          return true;
-        }
-      }
-      return false;
-    }
-
-    let tries = 40;
+    let tries = 60;
     while (tries-- > 0) {
       const left = padPx + Math.random() * Math.max(0, W);
       const top  = padPx + Math.random() * Math.max(0, H);
       el.style.left = left + 'px';
       el.style.top  = top  + 'px';
       const rect = el.getBoundingClientRect();
-      if (!collides(rect)) break;
+      if (!collidesRect(rect, el)) break;
     }
+
     el.style.visibility = '';
   }
 
-  // Fade older items so the oldest is faintest
+  function removeEl(el) {
+    if (!el) return;
+    const id = el.dataset ? el.dataset.id : null;
+    if (id != null) byId.delete(String(id));
+    active.delete(el);
+    if (el.isConnected) el.remove();
+  }
+
+  function removeOldestIfFull() {
+    if (active.size < maxActive) return;
+    const oldest = active.values().next().value;
+    removeEl(oldest);
+  }
+
+  // Opacity that scales with count: only becomes faint near 10 items
   function applyOpacityByAge() {
     const els = Array.from(active); // oldest -> newest
     const n = els.length;
     if (n === 0) return;
 
-    // oldest: 0.15, newest: 1.0
+    // countFactor: 0 at 1 item, 1 at 10 items
+    const countFactor = clamp((n - 1) / (maxActive - 1), 0, 1);
+
+    // oldest opacity interpolates from minOpacityAtLow -> minOpacityAtFull as wall fills up
+    const minOpacity = (minOpacityAtLow * (1 - countFactor)) + (minOpacityAtFull * countFactor);
+
     for (let i = 0; i < n; i++) {
-      const t = (n === 1) ? 1 : (i / (n - 1));       // 0 oldest, 1 newest
-      const op = 0.15 + (t * 0.85);
+      const ageT = (n === 1) ? 1 : (i / (n - 1)); // 0 oldest, 1 newest
+      const op = minOpacity + (ageT * (1 - minOpacity));
       els[i].style.opacity = op.toFixed(2);
     }
   }
 
-  // Show -> hold -> fade -> remove
+  // Show -> hold -> fade -> remove (kept)
   function runLifecycle(el) {
     active.add(el);
+    const id = el.dataset ? el.dataset.id : null;
+    if (id != null) byId.set(String(id), el);
 
-    // fade in to whatever opacity applyOpacityByAge sets
-    requestAnimationFrame(() => {
-      applyOpacityByAge();
-    });
+    requestAnimationFrame(() => applyOpacityByAge());
 
     const visibleMs = visibleMin * 60 * 1000;
     const fadeOutMs = fadeOutMin * 60 * 1000;
 
     setTimeout(() => {
-      // if element was already removed (by admin), skip
       if (!el.isConnected) {
-        active.delete(el);
+        removeEl(el);
         return;
       }
-      el.style.transition = `opacity ${fadeOutMs/1000}s linear`;
+      el.style.transition = `opacity ${fadeOutMs / 1000}s linear`;
       el.style.opacity = '0';
       setTimeout(() => {
-        active.delete(el);
-        if (el.isConnected) el.remove();
+        removeEl(el);
         applyOpacityByAge();
       }, fadeOutMs + 500);
     }, (fadeInSec * 1000) + visibleMs);
   }
 
-  // Spawn logic: expects full item { id, text, created_at }
+  // Spawn newest without teleporting others
   function spawn(item) {
     if (!item || !item.text || !item.text.trim()) return;
+    const id = (item.id == null) ? null : String(item.id);
+    if (id && byId.has(id)) return;
 
-    // If full, remove oldest so the newest always appears
-    if (active.size >= maxActive) {
-      const oldest = active.values().next().value;
-      if (oldest) {
-        active.delete(oldest);
-        if (oldest.isConnected) oldest.remove();
-      }
-    }
+    removeOldestIfFull();
 
     const el = makeQuote(item);
     placeQuote(el);
     layer.appendChild(el);
     runLifecycle(el);
+
+    // after adding, gently settle to avoid any minor overlaps
+    setTimeout(() => settleOnce(), 50);
+    setTimeout(() => settleOnce(), 180);
   }
 
-  // Rebuild wall from server list (newest -> oldest)
-  function rebuildFrom(itemsNewestFirst) {
-    // Clear current
-    active.forEach(el => {
-      if (el && el.isConnected) el.remove();
-    });
-    active.clear();
+  // Gentle separation: nudge overlapping boxes apart without teleporting
+  function settleOnce() {
+    const padPx = getPadPx();
+    const W = window.innerWidth;
+    const H = window.innerHeight;
 
-    // Spawn oldest -> newest to preserve insertion order meaningfully
-    const items = itemsNewestFirst.slice(0, maxActive).reverse();
-    items.forEach((it, i) => setTimeout(() => spawn(it), i * 250));
+    const els = Array.from(active);
+    if (els.length < 2) return;
+
+    // Work with rects for this tick
+    const rects = els.map(el => ({ el, r: el.getBoundingClientRect() }));
+
+    function move(el, dx, dy) {
+      const curL = parseFloat(el.style.left || '0');
+      const curT = parseFloat(el.style.top  || '0');
+      const nextL = curL + dx;
+      const nextT = curT + dy;
+
+      // Keep inside padded bounds
+      const r = el.getBoundingClientRect();
+      const maxL = W - r.width - padPx;
+      const maxT = H - r.height - padPx;
+      el.style.left = clamp(nextL, padPx, Math.max(padPx, maxL)) + 'px';
+      el.style.top  = clamp(nextT, padPx, Math.max(padPx, maxT)) + 'px';
+    }
+
+    for (let i = 0; i < rects.length; i++) {
+      for (let j = i + 1; j < rects.length; j++) {
+        const a = rects[i];
+        const b = rects[j];
+
+        const ax = (a.r.left + a.r.right) / 2;
+        const ay = (a.r.top + a.r.bottom) / 2;
+        const bx = (b.r.left + b.r.right) / 2;
+        const by = (b.r.top + b.r.bottom) / 2;
+
+        const dx = ax - bx;
+        const dy = ay - by;
+
+        const overlapX = (a.r.width / 2 + b.r.width / 2) - Math.abs(dx);
+        const overlapY = (a.r.height / 2 + b.r.height / 2) - Math.abs(dy);
+
+        // If overlapping (or very close), nudge apart
+        if (overlapX > -nudgeRangePx && overlapY > -nudgeRangePx) {
+          const len = Math.hypot(dx, dy) || 1;
+          const ux = dx / len;
+          const uy = dy / len;
+
+          // push each a bit
+          const push = nudgeStepPx;
+          move(a.el,  ux * push,  uy * push);
+          move(b.el, -ux * push, -uy * push);
+        }
+      }
+    }
   }
 
-  // Poll approved list every 3 seconds as a safety net
+  // Run gentle settling periodically
+  setInterval(() => settleOnce(), nudgeEveryMs);
+
+  // Incremental sync: add newest, remove dropped, do not rebuild
   async function pollApproved() {
     try {
       const res = await fetch('/api/approved?_=' + Date.now(), { cache: 'no-store' });
       const data = await res.json();
-      const items = data.items || [];
+      const items = (data.items || []).slice(0, maxActive);
 
-      // Server should return newest -> oldest
-      const ids = items.slice(0, maxActive).map(it => String(it.id));
-
-      const unchanged = (ids.length === lastIds.length) && ids.every((id, i) => id === lastIds[i]);
+      const idsNewest = items.map(it => String(it.id));
+      const unchanged = (idsNewest.length === lastIds.length) && idsNewest.every((id, i) => id === lastIds[i]);
       if (unchanged) return;
 
-      lastIds = ids;
-      rebuildFrom(items.slice(0, maxActive));
+      // Remove any active elements that are no longer in latest list
+      const keep = new Set(idsNewest);
+      for (const el of Array.from(active)) {
+        const id = el.dataset ? String(el.dataset.id) : null;
+        if (id && !keep.has(id)) {
+          removeEl(el);
+        }
+      }
+
+      // Spawn any missing items. Spawn oldest -> newest so they fill naturally.
+      // (existing items remain where they are; only new ones get placed)
+      for (let i = items.length - 1; i >= 0; i--) {
+        const it = items[i];
+        const id = String(it.id);
+        if (!byId.has(id)) {
+          spawn(it);
+        }
+      }
+
+      // Ensure we never exceed maxActive
+      while (active.size > maxActive) {
+        removeEl(active.values().next().value);
+      }
+
+      // Update tracking
+      lastIds = idsNewest;
+
+      // Update opacity
+      applyOpacityByAge();
     } catch (e) {
       console.warn('pollApproved failed', e);
     }
   }
 
-  // Initial seed
   async function loadInitial() {
     await pollApproved();
     setInterval(pollApproved, 3000);
   }
 
-  // Handle live approvals and removals
   function bootSocket() {
     const socket = io();
 
-    // New approved item
     socket.on('approved_item', (item) => {
-      // Spawn immediately for responsiveness
       spawn(item);
-      // Also poll shortly after to guarantee we are in sync and enforce limit
+      applyOpacityByAge();
       setTimeout(pollApproved, 300);
     });
 
-    // Removed item
     socket.on('removed_item', (payload) => {
       if (!payload || payload.id == null) return;
       const targetId = String(payload.id);
 
-      const toRemove = [];
-      active.forEach(el => {
-        if (el.dataset && el.dataset.id === targetId) {
-          toRemove.push(el);
-        }
-      });
-
-      toRemove.forEach(el => {
-        active.delete(el);
-        if (el.isConnected) el.remove();
-      });
+      const el = byId.get(targetId);
+      if (el) removeEl(el);
 
       applyOpacityByAge();
       setTimeout(pollApproved, 300);
