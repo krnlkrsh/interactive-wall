@@ -3,7 +3,7 @@
     <h1>Moderation</h1>
 
     <section>
-      <h2>Pending (<%= pending.length %>)</h2>
+      <h2>Pending (<span id="pending-count"><%= pending.length %></span>)</h2>
 
       <form method="post" action="/admin/bulk" class="bulk-actions">
         <input type="hidden" name="ids" id="bulk-ids" value="">
@@ -12,9 +12,9 @@
         <button class="btn danger" type="button" onclick="bulk('reject')">Bulk Reject</button>
       </form>
 
-      <div class="grid">
+      <div class="grid" id="pending-grid">
         <% pending.forEach(p => { const reason = p.flag_reason || (p.auto_flagged ? "profanity" : ""); %>
-          <div class="card">
+          <div class="card" data-id="<%= p.id %>">
             <div class="meta">
               <small>#<%= p.id %> • <%= p.created_at %>
                 <% if (p.auto_flagged) { %>
@@ -44,16 +44,15 @@
     <section>
       <h2>Recently approved</h2>
 
-      <div class="grid">
+      <div class="grid" id="approved-grid">
         <% approved.forEach(a => { %>
-          <div class="card ok">
+          <div class="card ok" data-id="<%= a.id %>">
             <div class="meta">
               <small>#<%= a.id %> • <%= a.created_at %></small>
             </div>
 
             <pre class="content"><%= a.text %></pre>
 
-            <!-- NEW: remove button -->
             <form class="actions" method="post" action="/admin/remove/<%= a.id %>">
               <button
                 class="btn small danger"
@@ -62,7 +61,6 @@
                   Remove from wall
               </button>
             </form>
-
           </div>
         <% }) %>
       </div>
@@ -76,5 +74,99 @@
       document.getElementById('bulk-action').value = action;
       document.querySelector('form.bulk-actions').submit();
     }
+
+    // ---- Auto-refresh moderation state (no page reload) ----
+    let lastSig = null;
+
+    function getSelectedIds() {
+      return new Set(Array.from(document.querySelectorAll('.sel:checked')).map(x => String(x.value)));
+    }
+
+    function escapeHtml(s) {
+      return (s || '').replace(/[&<>"']/g, c => ({
+        '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+      }[c]));
+    }
+
+    function renderPending(pending) {
+      const sel = getSelectedIds();
+      document.getElementById('pending-count').textContent = String(pending.length);
+
+      const grid = document.getElementById('pending-grid');
+      grid.innerHTML = pending.map(p => {
+        const reason = p.flag_reason || (p.auto_flagged ? "profanity" : "");
+        const flagged = p.auto_flagged
+          ? ` • <span class="flag">auto-flagged: ${escapeHtml(reason)}</span>`
+          : '';
+
+        const checked = sel.has(String(p.id)) ? 'checked' : '';
+
+        return `
+          <div class="card" data-id="${escapeHtml(String(p.id))}">
+            <div class="meta">
+              <small>#${escapeHtml(String(p.id))} • ${escapeHtml(p.created_at)}${flagged}</small>
+            </div>
+
+            <pre class="content">${escapeHtml(p.text)}</pre>
+
+            <form class="actions" method="post" action="/admin/approve/${escapeHtml(String(p.id))}">
+              <button class="btn small" type="submit">Approve</button>
+            </form>
+
+            <form class="actions" method="post" action="/admin/reject/${escapeHtml(String(p.id))}">
+              <button class="btn small danger" type="submit">Reject</button>
+            </form>
+
+            <label class="select">
+              <input type="checkbox" class="sel" value="${escapeHtml(String(p.id))}" ${checked}> select
+            </label>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderApproved(approved) {
+      const grid = document.getElementById('approved-grid');
+      grid.innerHTML = approved.map(a => {
+        return `
+          <div class="card ok" data-id="${escapeHtml(String(a.id))}">
+            <div class="meta">
+              <small>#${escapeHtml(String(a.id))} • ${escapeHtml(a.created_at)}</small>
+            </div>
+
+            <pre class="content">${escapeHtml(a.text)}</pre>
+
+            <form class="actions" method="post" action="/admin/remove/${escapeHtml(String(a.id))}">
+              <button class="btn small danger" type="submit" onclick="return confirm('Remove this post from the wall?');">
+                Remove from wall
+              </button>
+            </form>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function pollAdminState() {
+      try {
+        const res = await fetch('/api/admin/state?_=' + Date.now(), { cache: 'no-store' });
+        if (!res.ok) return;
+
+        const data = await res.json();
+        const sig = data.sig || null;
+
+        // If signature is unchanged, do nothing
+        if (sig && sig === lastSig) return;
+        lastSig = sig;
+
+        renderPending(data.pending || []);
+        renderApproved(data.approved || []);
+      } catch (e) {
+        // silent
+      }
+    }
+
+    // start polling
+    setInterval(pollAdminState, 2000);
+    pollAdminState();
   </script>
 <%- include('partials_foot') %>
