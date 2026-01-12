@@ -250,11 +250,24 @@ app.post('/submit', async (req, res) => {
 
 // JSON feed for approved items
 app.get('/api/approved', (req, res) => {
-  const rows = db.prepare(
-    'SELECT id, text, created_at FROM submissions WHERE approved=1 AND rejected=0 ORDER BY id ASC'
-  ).all();
-  res.json({ items: rows });
+  try {
+    res.set({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'Surrogate-Control': 'no-store'
+    });
+
+    const rows = db.prepare(
+      'SELECT id, text, created_at FROM submissions WHERE approved=1 AND rejected=0 ORDER BY created_at DESC LIMIT 10'
+    ).all();
+
+    res.json({ items: rows });
+  } catch (err) {
+    res.status(500).json({ error: 'failed_to_fetch' });
+  }
 });
+
 
 // Grid wall
 app.get('/wall', (req, res) => {
