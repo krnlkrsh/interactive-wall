@@ -1,6 +1,15 @@
 <%- include('partials_head') %>
 
 <style>
+  /* Zain Light */
+  @font-face {
+    font-family: "Zain";
+    src: url("/static/fonts/zain/Zain-Light.ttf") format("truetype");
+    font-weight: 300;
+    font-style: normal;
+    font-display: swap;
+  }
+
   /* Fullscreen video background */
   #bg-video {
     position: fixed;
@@ -32,6 +41,9 @@
     white-space: pre-wrap;
     opacity: 0;
     will-change: transform, left, top, opacity;
+
+    font-family: "Zain", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    font-weight: 300;
   }
 </style>
 
