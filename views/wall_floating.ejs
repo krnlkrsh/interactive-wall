@@ -59,7 +59,7 @@
   // ---- URL params with sensible defaults ----
   const params     = new URLSearchParams(location.search);
   const videoSrc   = params.get('video') || 'video/background.mp4'; // file under /public/
-  const maxActive  = 5; // hard lock to 5
+  const maxActive  = 4; // hard lock to 4
   const fontsize   = params.get('fontsize') || '3vmin';
   const fontMinPx  = parseInt(params.get('fontMinPx') || '24', 10);
   const fontMaxPx  = parseInt(params.get('fontMaxPx') || '72', 10);
