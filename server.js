@@ -26,6 +26,12 @@ const BLOCK_LINKS = process.env.BLOCK_LINKS === '1';
 const TURNSTILE_SITE_KEY = process.env.TURNSTILE_SITE_KEY || '';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
+// NEW: character limit (hard limit)
+const MAX_CHARS = parseInt(process.env.MAX_CHARS || '300', 10);
+
+// NEW: how many approved items the wall fetch returns
+const APPROVED_FEED_LIMIT = parseInt(process.env.APPROVED_FEED_LIMIT || '8', 10);
+
 // Load banned terms
 const bannedPath = path.join(__dirname, 'data', 'banned.txt');
 let banned = [];
@@ -78,12 +84,12 @@ function normalizeForMatch(text) {
     .toLowerCase();
 }
 
-
 // Simple URL / link detector
 function hasLink(text) {
   const re = /(https?:\/\/|www\.)\S+/i;
   return re.test(text);
 }
+
 function containsBanned(text) {
   const t = normalizeForMatch(text);
   for (const m of bannedMatchers) {
@@ -91,7 +97,6 @@ function containsBanned(text) {
   }
   return false;
 }
-
 
 function excessiveCaps(text) {
   const letters = text.replace(/[^A-Za-z\p{L}]/gu, '');
@@ -203,11 +208,11 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use('/static', express.static(path.join(__dirname, 'public')));
 
-// Basic sanitize
+// Basic sanitize (updated to MAX_CHARS)
 function sanitizeText(s) {
   return String(s || '')
     .replace(/\r/g, '')
-    .slice(0, 500)
+    .slice(0, MAX_CHARS)
     .trim();
 }
 
@@ -244,10 +249,20 @@ app.get('/wall-floating', (req, res) => {
 // ---------- Submit with auto-approval for clean content ----------
 app.post('/submit', async (req, res) => {
   const raw = req.body.text || '';
-  const text = sanitizeText(normalizeInput(raw));
-  if (!text) {
+
+  // Normalize first, then enforce a hard limit (do not silently truncate)
+  const normalized = normalizeInput(raw);
+  const cleaned = String(normalized || '').replace(/\r/g, '').trim();
+
+  if (!cleaned) {
     return res.status(400).render('error', { message: 'Please enter a few words.' });
   }
+
+  if (cleaned.length > MAX_CHARS) {
+    return res.status(400).render('error', { message: `Please keep it under ${MAX_CHARS} characters.` });
+  }
+
+  const text = sanitizeText(cleaned);
 
   const ip = req.ip;
   const ua = req.get('user-agent') || '';
@@ -303,15 +318,18 @@ app.get('/api/approved', (req, res) => {
     });
 
     const rows = db.prepare(
-      'SELECT id, text, created_at FROM submissions WHERE approved=1 AND rejected=0 ORDER BY created_at DESC LIMIT 10'
-    ).all();
+      `SELECT id, text, created_at
+       FROM submissions
+       WHERE approved=1 AND rejected=0
+       ORDER BY created_at DESC
+       LIMIT ?`
+    ).all(APPROVED_FEED_LIMIT);
 
     res.json({ items: rows });
   } catch (err) {
     res.status(500).json({ error: 'failed_to_fetch' });
   }
 });
-
 
 // Grid wall
 app.get('/wall', (req, res) => {
@@ -340,6 +358,7 @@ app.get('/admin', adminAuth, (req, res) => {
   ).all();
   res.render('admin', { title: 'Moderation', pending, approved });
 });
+
 // Admin JSON state for live-updating the moderation page (polled by admin.ejs)
 app.get('/api/admin/state', adminAuth, (req, res) => {
   try {
@@ -365,7 +384,6 @@ app.get('/api/admin/state', adminAuth, (req, res) => {
     res.status(500).json({ error: 'failed' });
   }
 });
-
 
 app.post('/admin/approve/:id', adminAuth, (req, res) => {
   const id = parseInt(req.params.id, 10);
