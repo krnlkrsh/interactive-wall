@@ -10,7 +10,7 @@
       <div dir="rtl">تذكّر أن تكون كلماتك لطيفة ومحترمة</div>
     </div>
 
-    <form class="card" method="post" action="/submit">
+    <form class="card" method="post" action="/submit" id="submitForm">
       <label for="text">Your words</label>
       <textarea
         id="text"
@@ -25,15 +25,19 @@
       </div>
 
       <div id="cf-turnstile" style="margin-top:12px;"></div>
-      <button class="btn" type="submit">Send</button>
+      <button class="btn" type="submit" id="submitBtn">Send</button>
     </form>
   </main>
 
   <script>
-    // Tiny client-side safeguards + counter
+    // Tiny client-side safeguards + counter + prevent double-submit
+    const form = document.getElementById('submitForm');
     const ta = document.getElementById('text');
     const countEl = document.getElementById('charCount');
+    const btn = document.getElementById('submitBtn');
     const MAX = 300;
+
+    let submitting = false;
 
     function updateCount() {
       countEl.textContent = `${ta.value.length}/${MAX}`;
@@ -51,6 +55,38 @@
 
       if (clipped !== ta.value) ta.value = clipped;
       updateCount();
+    });
+
+    // Prevent accidental double-submit
+    form.addEventListener('submit', (e) => {
+      if (submitting) {
+        e.preventDefault();
+        return;
+      }
+
+      // Optional: block empty submissions client-side too
+      if (!ta.value || !ta.value.trim()) {
+        e.preventDefault();
+        return;
+      }
+
+      submitting = true;
+
+      // Lock UI immediately
+      btn.disabled = true;
+      btn.dataset.originalText = btn.textContent;
+      btn.textContent = 'Sending…';
+      ta.readOnly = true;
+
+      // If the network fails and user stays on page, unlock after a bit
+      window.setTimeout(() => {
+        if (!document.hidden) {
+          submitting = false;
+          btn.disabled = false;
+          btn.textContent = btn.dataset.originalText || 'Send';
+          ta.readOnly = false;
+        }
+      }, 15000);
     });
 
     updateCount();
