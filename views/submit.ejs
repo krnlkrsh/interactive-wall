@@ -1,22 +1,58 @@
 <%- include('partials_head') %>
   <main class="container">
     <h1 class="title">Share a few words</h1>
+
+    <div class="card" style="margin-bottom:14px;">
+      <div style="font-weight:600; margin-bottom:6px;">Write a message of love and gratitude to a loved one below</div>
+      <div style="margin-bottom:10px;">Keep your entries kind and respectful</div>
+
+      <div dir="rtl" style="font-weight:600; margin-bottom:6px;">اكتب رسالة حب وامتنان لشخص عزيز عليك هنا</div>
+      <div dir="rtl">تذكّر أن تكون كلماتك لطيفة ومحترمة</div>
+    </div>
+
     <form class="card" method="post" action="/submit">
       <label for="text">Your words</label>
-      <textarea id="text" name="text" rows="6" maxlength="500" placeholder="Write a short thought, feeling, or phrase…"></textarea>
-      <div class="hint">Max ~500 characters. Keep it kind.</div>
-<div id="cf-turnstile" style="margin-top:12px;"></div>
+      <textarea
+        id="text"
+        name="text"
+        rows="6"
+        maxlength="300"
+        placeholder="Write a short thought, feeling, or phrase…"></textarea>
+
+      <div class="hint">
+        <span id="charHint">Max 300 characters. Keep it kind.</span>
+        <span id="charCount" style="float:right;">0/300</span>
+      </div>
+
+      <div id="cf-turnstile" style="margin-top:12px;"></div>
       <button class="btn" type="submit">Send</button>
     </form>
   </main>
+
   <script>
-    // Tiny client-side safeguards
+    // Tiny client-side safeguards + counter
     const ta = document.getElementById('text');
+    const countEl = document.getElementById('charCount');
+    const MAX = 300;
+
+    function updateCount() {
+      countEl.textContent = `${ta.value.length}/${MAX}`;
+    }
+
     ta.addEventListener('input', () => {
-      // Limit line breaks and consecutive spaces
+      // Limit consecutive spaces
       let v = ta.value.replace(/\s{3,}/g, '  ');
+
+      // Limit line breaks
       const lines = v.split(/\n/).slice(0, 12).join('\n');
-      if (lines !== v) ta.value = lines;
+
+      // Enforce max chars (UI-level)
+      const clipped = lines.slice(0, MAX);
+
+      if (clipped !== ta.value) ta.value = clipped;
+      updateCount();
     });
+
+    updateCount();
   </script>
 <%- include('partials_foot') %>
