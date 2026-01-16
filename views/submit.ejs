@@ -64,7 +64,7 @@
         return;
       }
 
-      // Optional: block empty submissions client-side too
+      // Block empty submissions client-side too
       if (!ta.value || !ta.value.trim()) {
         e.preventDefault();
         return;
@@ -92,4 +92,3 @@
     updateCount();
   </script>
 <%- include('partials_foot') %>
-
