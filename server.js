@@ -32,9 +32,6 @@ const MAX_CHARS = parseInt(process.env.MAX_CHARS || '300', 10);
 // NEW: how many approved items the wall fetch returns
 const APPROVED_FEED_LIMIT = parseInt(process.env.APPROVED_FEED_LIMIT || '8', 10);
 
-// NEW: enforce Turnstile (fail closed if misconfigured)
-const REQUIRE_TURNSTILE = (process.env.REQUIRE_TURNSTILE || '1') === '1';
-
 // Load banned terms
 const bannedPath = path.join(__dirname, 'data', 'banned.txt');
 let banned = [];
@@ -115,22 +112,13 @@ function normalizeInput(s) {
   return v.trim();
 }
 
-// Turnstile verification
+// Turnstile verification (same idea as your version)
 const fetch = (...args) => import('node-fetch')
   .then(({ default: fetch }) => fetch(...args))
   .catch(() => null);
 
-function turnstileConfigured() {
-  return !!(TURNSTILE_SITE_KEY && TURNSTILE_SECRET_KEY);
-}
-
 async function verifyTurnstile(token, ip) {
-  // If Turnstile is required, fail closed when misconfigured.
-  if (REQUIRE_TURNSTILE && !turnstileConfigured()) return false;
-
-  // If not required, allow when misconfigured.
-  if (!REQUIRE_TURNSTILE && !TURNSTILE_SECRET_KEY) return true;
-
+  if (!TURNSTILE_SECRET_KEY) return true; // disabled
   try {
     const resp = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
       method: 'POST',
@@ -149,7 +137,7 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// DB helpers
+// DB helpers (full SQL restored, no "...")
 function countRecent(ip, seconds) {
   const row = db.prepare(
     "SELECT COUNT(*) as c FROM submissions WHERE ip=? AND created_at >= datetime('now', ?)"
@@ -194,12 +182,10 @@ app.use(helmet({
   contentSecurityPolicy: {
     useDefaults: true,
     directives: {
-      // Allow Turnstile script + iframe + verification request
-      "script-src": ["'self'", "'unsafe-inline'", "https://challenges.cloudflare.com"],
+      "script-src": ["'self'", "'unsafe-inline'"],
       "style-src": ["'self'", "'unsafe-inline'"],
       "img-src": ["'self'", "data:"],
-      "connect-src": ["'self'", "https://challenges.cloudflare.com"],
-      "frame-src": ["'self'", "https://challenges.cloudflare.com"]
+      "connect-src": ["'self'"]
     }
   }
 }));
@@ -252,8 +238,6 @@ async function isFlaggedByOpenAI(text) {
 app.get('/', (req, res) => res.redirect('/submit'));
 
 app.get('/submit', (req, res) => {
-  // If Turnstile is required but not configured, show the page (so you can see it),
-  // but submissions will be blocked with a clear message.
   res.render('submit', { title: 'Share your words', TURNSTILE_SITE_KEY });
 });
 
@@ -283,18 +267,8 @@ app.post('/submit', async (req, res) => {
   const ip = req.ip;
   const ua = req.get('user-agent') || '';
 
-  // Turnstile enforcement
-  if (REQUIRE_TURNSTILE && !turnstileConfigured()) {
-    return res.status(500).render('error', {
-      message: 'Captcha is not configured on the server. Please set TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY.'
-    });
-  }
-
+  // Optional Turnstile
   const turnstileToken = req.body['cf-turnstile-response'];
-  if (REQUIRE_TURNSTILE && (!turnstileToken || !String(turnstileToken).trim())) {
-    return res.status(400).render('error', { message: 'Please complete the captcha.' });
-  }
-
   const humanOK = await verifyTurnstile(turnstileToken, ip);
   if (!humanOK) {
     return res.status(400).render('error', { message: 'Captcha verification failed.' });
@@ -480,11 +454,6 @@ app.use((err, req, res, next) => {
   console.error(err);
   res.status(500).render('error', { message: 'Something went wrong.' });
 });
-
-// Startup warning if Turnstile is required but not configured
-if (REQUIRE_TURNSTILE && !turnstileConfigured()) {
-  console.warn('[Turnstile] REQUIRE_TURNSTILE=1 but TURNSTILE_SITE_KEY / TURNSTILE_SECRET_KEY are missing. Submissions will be blocked until configured.');
-}
 
 server.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
