@@ -235,7 +235,7 @@
 
       // newest = 1.0, next = 0.96, next = 0.96^2, ...
       const stepsFromNewest = (n - 1) - i;
-      const ageScale = Math.pow(0.96, stepsFromNewest);
+      const ageScale = Math.pow(0.90, stepsFromNewest);
 
       const lenScale = parseFloat((el.dataset && el.dataset.lenScale) ? el.dataset.lenScale : '1') || 1;
 
