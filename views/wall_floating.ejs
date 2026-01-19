@@ -39,10 +39,12 @@
     letter-spacing: 0.2px;
     user-select: none;
     white-space: pre-wrap;
-    opacity: 0;
+
+    /* No transparency */
+    opacity: 1;
 
     /* Smooth motion via GPU transform */
-    will-change: transform, opacity;
+    will-change: transform;
 
     font-family: "Zain", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
     font-weight: 300;
@@ -59,7 +61,7 @@
   // ---- URL params with sensible defaults ----
   const params     = new URLSearchParams(location.search);
   const videoSrc   = params.get('video') || 'video/background.mp4'; // file under /public/
-  const maxActive  = 4; // hard lock to 4
+  const maxActive  = 5; // hard lock to 5
   const fontsize   = params.get('fontsize') || '3vmin';
   const fontMinPx  = parseInt(params.get('fontMinPx') || '24', 10);
   const fontMaxPx  = parseInt(params.get('fontMaxPx') || '72', 10);
@@ -69,12 +71,7 @@
   const maxwVW     = parseFloat(params.get('maxw') || '40');
   const paddingV   = parseFloat(params.get('pad')  || '5');
 
-  // opacity tuning
-  const minOpacityAtFull = 0.22;     // oldest opacity when wall is full
-  const minOpacityAtLow  = 0.85;     // oldest opacity when there are 1–2
-
   // size tuning
-  const ageMinScaleAtFull = 0.84;    // oldest scale when wall is full (subtle shrink)
   const lenMinScale       = 0.78;    // scale for very long texts
   const lenMaxScale       = 1.08;    // scale for very short texts
 
@@ -141,7 +138,6 @@
     // Base font size stays clamped, then we multiply via transform scale for age+length effects
     q.style.fontSize = `clamp(${fontMinPx}px, ${fontsize}, ${fontMaxPx}px)`;
     q.style.maxWidth = maxwVW + 'vw';
-    q.style.transition = `opacity ${fadeInSec}s linear`;
 
     // store per-item length scale
     q.dataset.lenScale = String(lengthScaleFor(text));
@@ -227,32 +223,29 @@
     removeEl(oldest);
   }
 
-  // Apply opacity + size scaling (age + length)
+  // Apply size scaling (age + length)
+  // Age rule: every time a new post is added, all existing posts get 4% smaller
   function applyVisuals() {
     const els = Array.from(active); // oldest -> newest
     const n = els.length;
     if (n === 0) return;
 
-    const countFactor = clamp((n - 1) / (maxActive - 1), 0, 1);
-    const minOpacity = (minOpacityAtLow * (1 - countFactor)) + (minOpacityAtFull * countFactor);
-
-    // age scaling: only becomes smaller when wall is near full
-    const minAgeScale = 1 - ((1 - ageMinScaleAtFull) * countFactor);
-
     for (let i = 0; i < n; i++) {
       const el = els[i];
-      const ageT = (n === 1) ? 1 : (i / (n - 1)); // 0 oldest, 1 newest
 
-      const op = minOpacity + (ageT * (1 - minOpacity));
-      el.style.opacity = op.toFixed(2);
+      // newest = 1.0, next = 0.96, next = 0.96^2, ...
+      const stepsFromNewest = (n - 1) - i;
+      const ageScale = Math.pow(0.96, stepsFromNewest);
 
-      const ageScale = minAgeScale + (ageT * (1 - minAgeScale));
       const lenScale = parseFloat((el.dataset && el.dataset.lenScale) ? el.dataset.lenScale : '1') || 1;
 
       const finalScale = clamp(ageScale * lenScale, 0.70, 1.15);
 
       // Scale is applied in the animation loop; store on dataset for quick access
       el.dataset.finalScale = String(finalScale);
+
+      // Force equal opacity always
+      el.style.opacity = '1';
     }
   }
 
@@ -339,7 +332,7 @@
 
   requestAnimationFrame(animate);
 
-  // Show -> hold -> fade -> remove
+  // Show -> hold -> remove (no opacity fade)
   function runLifecycle(el) {
     active.add(el);
     const id = el.dataset ? el.dataset.id : null;
@@ -348,20 +341,11 @@
     requestAnimationFrame(() => applyVisuals());
 
     const visibleMs = visibleMin * 60 * 1000;
-    const fadeOutMs = fadeOutMin * 60 * 1000;
 
     setTimeout(() => {
-      if (!el.isConnected) {
-        removeEl(el);
-        return;
-      }
-      el.style.transition = `opacity ${fadeOutMs / 1000}s linear`;
-      el.style.opacity = '0';
-      setTimeout(() => {
-        removeEl(el);
-        applyVisuals();
-      }, fadeOutMs + 500);
-    }, (fadeInSec * 1000) + visibleMs);
+      removeEl(el);
+      applyVisuals();
+    }, visibleMs);
   }
 
   // Spawn newest without teleporting others
