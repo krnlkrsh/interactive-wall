@@ -25,10 +25,11 @@
       </div>
 
       <div
-  class="cf-turnstile"
-  data-sitekey="<%= TURNSTILE_SITE_KEY %>"
-  style="margin-top:12px;">
-</div>
+        class="cf-turnstile"
+        data-sitekey="<%= TURNSTILE_SITE_KEY %>"
+        style="margin-top:12px;">
+      </div>
+
       <button class="btn" type="submit" id="submitBtn">Send</button>
     </form>
   </main>
@@ -68,8 +69,16 @@
         return;
       }
 
-      // Optional: block empty submissions client-side too
+      // Block empty submissions client-side too
       if (!ta.value || !ta.value.trim()) {
+        e.preventDefault();
+        return;
+      }
+
+      // If Turnstile is enabled but not completed, block submit
+      // (Cloudflare injects a hidden input named "cf-turnstile-response" when solved)
+      const tsInput = form.querySelector('input[name="cf-turnstile-response"]');
+      if (tsInput && !tsInput.value) {
         e.preventDefault();
         return;
       }
@@ -96,4 +105,3 @@
     updateCount();
   </script>
 <%- include('partials_foot') %>
-
