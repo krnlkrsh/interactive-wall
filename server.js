@@ -66,7 +66,6 @@ const bannedMatchers = banned
     const parts = normalized.split(/\s+/).filter(Boolean);
     const escaped = parts.map(escapeRegex).join('\\s+');
 
-    // For very short terms (<= 3 chars), force strict boundaries
     const needsStrict = parts.join('').length <= 3;
 
     const pattern = needsStrict
@@ -106,19 +105,18 @@ function excessiveCaps(text) {
 }
 
 function normalizeInput(s) {
-  // Squash 3+ repeats, trim lines, limit to 12 lines
   let v = s.replace(/(.)\1{2,}/g, '$1$1');
   v = v.split(/\n/).slice(0, 12).map(l => l.trimEnd()).join('\n');
   return v.trim();
 }
 
-// Turnstile verification (same idea as your version)
+// Turnstile verification
 const fetch = (...args) => import('node-fetch')
   .then(({ default: fetch }) => fetch(...args))
   .catch(() => null);
 
 async function verifyTurnstile(token, ip) {
-  if (!TURNSTILE_SECRET_KEY) return true; // disabled
+  if (!TURNSTILE_SECRET_KEY) return true;
   try {
     const resp = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
       method: 'POST',
@@ -137,7 +135,7 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// DB helpers (full SQL restored, no "...")
+// DB helpers
 function countRecent(ip, seconds) {
   const row = db.prepare(
     "SELECT COUNT(*) as c FROM submissions WHERE ip=? AND created_at >= datetime('now', ?)"
@@ -190,12 +188,13 @@ app.use(helmet({
     }
   }
 }));
+
 app.use(compression());
 app.use(morgan('tiny'));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// Rate limiting for public endpoints
+// Rate limiting
 const limiter = rateLimit({
   windowMs: 30 * 1000,
   max: 20,
@@ -209,7 +208,7 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use('/static', express.static(path.join(__dirname, 'public')));
 
-// Basic sanitize (updated to MAX_CHARS)
+// Sanitize
 function sanitizeText(s) {
   return String(s || '')
     .replace(/\r/g, '')
@@ -217,10 +216,9 @@ function sanitizeText(s) {
     .trim();
 }
 
-// ---------- OpenAI moderation helper ----------
+// OpenAI moderation
 async function isFlaggedByOpenAI(text) {
-  if (!openai.apiKey) return false; // if key missing, don't block
-
+  if (!openai.apiKey) return false;
   try {
     const response = await openai.moderations.create({
       model: 'omni-moderation-latest',
@@ -230,28 +228,39 @@ async function isFlaggedByOpenAI(text) {
     return !!(result && result.flagged);
   } catch (err) {
     console.error('OpenAI moderation error:', err.message || err);
-    // Fail open on API errors
     return false;
   }
 }
 
-// Routes
+// ---------- ROUTES (ONLY CHANGES FOR POINT 3 ARE HERE) ----------
+
 app.get('/', (req, res) => res.redirect('/submit'));
 
+// 🚫 PUBLIC /submit is now blocked
 app.get('/submit', (req, res) => {
-  res.render('submit', { title: 'Share your words', TURNSTILE_SITE_KEY });
+  res.render('error', {
+    title: 'Access Restricted',
+    message: 'Please use the official QR code to submit your message.'
+  });
 });
 
-// Floating wall (video background)
+// ✅ SECRET QR PATH (YOUR LINK)
+app.get('/access-7f3b9kz2m', (req, res) => {
+  res.render('submit', {
+    title: 'Share your words',
+    TURNSTILE_SITE_KEY
+  });
+});
+
+// Floating wall
 app.get('/wall-floating', (req, res) => {
   res.render('wall_floating', { title: 'Floating Quotes' });
 });
 
-// ---------- Submit with auto-approval for clean content ----------
+// ---------- Submit route (UNCHANGED) ----------
 app.post('/submit', async (req, res) => {
   const raw = req.body.text || '';
 
-  // Normalize first, then enforce a hard limit (do not silently truncate)
   const normalized = normalizeInput(raw);
   const cleaned = String(normalized || '').replace(/\r/g, '').trim();
 
@@ -268,14 +277,12 @@ app.post('/submit', async (req, res) => {
   const ip = req.ip;
   const ua = req.get('user-agent') || '';
 
-  // Optional Turnstile
   const turnstileToken = req.body['cf-turnstile-response'];
   const humanOK = await verifyTurnstile(turnstileToken, ip);
   if (!humanOK) {
     return res.status(400).render('error', { message: 'Captcha verification failed.' });
   }
 
-  // Heuristic checks
   let auto_flagged = 0;
 
   if (BLOCK_LINKS && hasLink(text)) auto_flagged = 1;
@@ -283,11 +290,9 @@ app.post('/submit', async (req, res) => {
   if (excessiveCaps(text)) auto_flagged = 1;
   if (filter.isProfane(text)) auto_flagged = 1;
 
-  // OpenAI moderation
   const aiFlagged = await isFlaggedByOpenAI(text);
   if (aiFlagged) auto_flagged = 1;
 
-  // If NOT flagged, auto-approve so it goes straight to the wall
   const approved = auto_flagged ? 0 : 1;
 
   const stmt = db.prepare(
@@ -295,7 +300,6 @@ app.post('/submit', async (req, res) => {
   );
   const info = stmt.run(text, ip, ua, auto_flagged, approved);
 
-  // If auto-approved, push to the wall immediately
   if (approved) {
     const item = db.prepare(
       'SELECT id, text, created_at FROM submissions WHERE id=?'
@@ -308,7 +312,7 @@ app.post('/submit', async (req, res) => {
   res.render('thanks', { title: 'Thank you!' });
 });
 
-// JSON feed for approved items
+// Approved feed (unchanged)
 app.get('/api/approved', (req, res) => {
   try {
     res.set({
@@ -332,7 +336,7 @@ app.get('/api/approved', (req, res) => {
   }
 });
 
-// Grid wall
+// Wall grid (unchanged)
 app.get('/wall', (req, res) => {
   const theme = req.query.theme || 'light';
   const columns = Math.max(1, Math.min(12, parseInt(req.query.columns || '5', 10)));
@@ -341,7 +345,7 @@ app.get('/wall', (req, res) => {
   res.render('wall', { title: 'Wall', theme, columns, gap, fontsize });
 });
 
-// Admin auth
+// Admin routes (unchanged)
 const adminUser = process.env.ADMIN_USER || 'admin';
 const adminPass = process.env.ADMIN_PASS || 'please-change-me';
 const adminAuth = basicAuth({
@@ -360,7 +364,6 @@ app.get('/admin', adminAuth, (req, res) => {
   res.render('admin', { title: 'Moderation', pending, approved });
 });
 
-// Admin JSON state for live-updating the moderation page (polled by admin.ejs)
 app.get('/api/admin/state', adminAuth, (req, res) => {
   try {
     res.set({
@@ -406,13 +409,8 @@ app.post('/admin/reject/:id', adminAuth, (req, res) => {
 
 app.post('/admin/remove/:id', adminAuth, (req, res) => {
   const id = parseInt(req.params.id, 10);
-
-  // Mark as removed: no longer approved and considered rejected
   db.prepare('UPDATE submissions SET approved=0, rejected=1 WHERE id=?').run(id);
-
-  // Tell all connected walls to remove this item immediately
   io.emit('removed_item', { id });
-
   res.redirect('/admin');
 });
 
@@ -422,6 +420,7 @@ app.post('/admin/bulk', adminAuth, (req, res) => {
     .map(x => parseInt(x, 10))
     .filter(Boolean);
   const action = req.body.action;
+
   const approveStmt = db.prepare(
     'UPDATE submissions SET approved=1, rejected=0 WHERE id=?'
   );
@@ -441,16 +440,13 @@ app.post('/admin/bulk', adminAuth, (req, res) => {
       rejectStmt.run(id);
     }
   });
+
   emitApproved.forEach(item => io.emit('approved_item', item));
   res.redirect('/admin');
 });
 
-// Socket for wall live updates
-io.on('connection', (socket) => {
-  // Connected clients receive 'approved_item' broadcasts
-});
+io.on('connection', (socket) => {});
 
-// Error handler
 app.use((err, req, res, next) => {
   console.error(err);
   res.status(500).render('error', { message: 'Something went wrong.' });
