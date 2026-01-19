@@ -75,6 +75,9 @@
   const lenMinScale       = 0.78;    // scale for very long texts
   const lenMaxScale       = 1.08;    // scale for very short texts
 
+  // Age shrink per NEW post added (cumulative)
+  const AGE_STEP_FACTOR = 0.96; // 4% smaller each new post
+
   // Smooth repulsion (high FPS)
   const REPULSION_RANGE     = 26;    // px margin where pushing starts
   const REPULSION_STRENGTH  = 0.08;  // acceleration scale
@@ -141,6 +144,9 @@
 
     // store per-item length scale
     q.dataset.lenScale = String(lengthScaleFor(text));
+
+    // NEW: cumulative age steps (how many newer posts arrived since this one)
+    q.dataset.ageSteps = '0';
 
     // transform applied by applyVisuals() and animation loop
     q.style.transform = 'translate3d(0px, 0px, 0px) scale(1)';
@@ -225,23 +231,17 @@
 
   // Apply size scaling (age + length)
   // Age rule: every time a new post is added, all existing posts get 4% smaller
-  function applyVisuals() {
-    const els = Array.from(active); // oldest -> newest
-    const n = els.length;
-    if (n === 0) return;
+   function applyVisuals() {
+    const els = Array.from(active);
+    if (els.length === 0) return;
 
-    for (let i = 0; i < n; i++) {
-      const el = els[i];
+    for (const el of els) {
+      const steps = parseInt(el.dataset.ageSteps || '0', 10) || 0;
 
-      // newest = 1.0, next = 0.96, next = 0.96^2, ...
-      const stepsFromNewest = (n - 1) - i;
-      const ageScale = Math.pow(0.90, stepsFromNewest);
-
+      const ageScale = Math.pow(AGE_STEP_FACTOR, steps);
       const lenScale = parseFloat((el.dataset && el.dataset.lenScale) ? el.dataset.lenScale : '1') || 1;
 
       const finalScale = clamp(ageScale * lenScale, 0.70, 1.15);
-
-      // Scale is applied in the animation loop; store on dataset for quick access
       el.dataset.finalScale = String(finalScale);
 
       // Force equal opacity always
@@ -349,22 +349,29 @@
   }
 
   // Spawn newest without teleporting others
-  function spawn(item) {
+    function spawn(item) {
     if (!item || !item.text || !item.text.trim()) return;
     const id = (item.id == null) ? null : String(item.id);
     if (id && byId.has(id)) return;
 
     removeOldestIfFull();
 
+    // Every time a new post is added, existing posts get 4% smaller (cumulative)
+    for (const existing of active) {
+      const cur = parseInt(existing.dataset.ageSteps || '0', 10) || 0;
+      existing.dataset.ageSteps = String(cur + 1);
+    }
+
     const el = makeQuote(item);
+    el.dataset.ageSteps = '0'; // newest starts at 0 steps
+
     placeQuote(el);
     layer.appendChild(el);
     runLifecycle(el);
 
-    // re-apply visuals so older ones shrink slightly on each new addition
+    // re-apply visuals so older ones shrink on each new addition
     setTimeout(() => applyVisuals(), 20);
   }
-
   // Incremental sync: add newest, remove dropped, do not rebuild
   async function pollApproved() {
     try {
