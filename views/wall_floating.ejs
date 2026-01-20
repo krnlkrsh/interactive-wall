@@ -136,7 +136,7 @@
       q.dataset.id = String(item.id);
     }
 
-    q.textContent = '“' + text + '”';
+    q.textContent = text;
 
     // Base font size stays clamped, then we multiply via transform scale for age+length effects
     q.style.fontSize = `clamp(${fontMinPx}px, ${fontsize}, ${fontMaxPx}px)`;
