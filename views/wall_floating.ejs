@@ -334,20 +334,18 @@
 
   // Show -> hold -> remove (no opacity fade)
   function runLifecycle(el) {
-    active.add(el);
-    const id = el.dataset ? el.dataset.id : null;
-    if (id != null) byId.set(String(id), el);
+  active.add(el);
+  const id = el.dataset ? el.dataset.id : null;
+  if (id != null) byId.set(String(id), el);
 
-    requestAnimationFrame(() => applyVisuals());
+  requestAnimationFrame(() => applyVisuals());
 
-    const visibleMs = visibleMin * 60 * 1000;
-
-    setTimeout(() => {
-      removeEl(el);
-      applyVisuals();
-    }, visibleMs);
-  }
-
+  // Removed the timed auto-delete.
+  // Quotes will now only disappear when:
+  // - maxActive is exceeded (removeOldestIfFull),
+  // - admin removes/rejects (socket removed_item),
+  // - pollApproved sees they’re no longer in /api/approved.
+}
   // Spawn newest without teleporting others
     function spawn(item) {
     if (!item || !item.text || !item.text.trim()) return;
