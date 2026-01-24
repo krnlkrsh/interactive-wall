@@ -61,7 +61,7 @@
   // ---- URL params with sensible defaults ----
   const params     = new URLSearchParams(location.search);
   const videoSrc   = params.get('video') || 'video/background.mp4'; // file under /public/
-  const maxActive  = 8; // hard lock to 8
+  const maxActive  = 10; // hard lock to 10
   const fontsize   = params.get('fontsize') || '3vmin';
   const fontMinPx  = parseInt(params.get('fontMinPx') || '24', 10);
   const fontMaxPx  = parseInt(params.get('fontMaxPx') || '72', 10);
@@ -76,7 +76,7 @@
   const lenMaxScale       = 1.08;    // scale for very short texts
 
   // Age shrink per NEW post added (cumulative)
-  const AGE_STEP_FACTOR = 0.92; // 8% smaller each new post
+  const AGE_STEP_FACTOR = 0.91; // 9% smaller each new post
 
   // Smooth repulsion (high FPS)
   const REPULSION_RANGE     = 26;    // px margin where pushing starts
