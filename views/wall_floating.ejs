@@ -21,13 +21,12 @@
     background: #000;
   }
 
-    /* Ghost layer lives UNDER main quotes */
-  .ghost-layer {
+      /* Ghost canvas lives UNDER main quotes */
+  #ghost-canvas {
     position: fixed;
     inset: 0;
     z-index: 1;          /* above video (0), below quotes-layer (2) */
     pointer-events: none;
-    padding: var(--pad, 5vmin);
   }
 
   /* Main/front layer stays on top */
@@ -59,25 +58,13 @@
     font-weight: 300;
   }
 
-  /* Ghosts are smaller + transparent and never animated */
-  .ghost {
-    position: absolute;
-    color: #f2f2f2;
-    text-shadow: 0 2px 18px rgba(0,0,0,0.35);
-    line-height: 1.2;
-    font-family: "Zain", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-    font-weight: 300;
-    white-space: pre-wrap;
-    opacity: 0.28;       /* transparent ghosts */
-    user-select: none;
-  }
 </style>
 
 <main class="wall dark" style="padding:0; margin:0;">
   <video id="bg-video" autoplay muted loop playsinline></video>
 
   <!-- Ghost layer lives UNDER the main quotes -->
-  <div id="ghost-layer" class="ghost-layer"></div>
+    <canvas id="ghost-canvas"></canvas>
 
   <!-- Main/front layer (unchanged behavior) -->
   <div id="quotes-layer" class="quotes-layer"></div>
@@ -116,10 +103,10 @@
   video.src = '/static/' + videoSrc;
   video.onerror = () => { video.remove(); document.body.style.background = '#000'; };
 
-    const ghostLayer = document.getElementById('ghost-layer');
-  const layer      = document.getElementById('quotes-layer');
+     const ghostCanvas = document.getElementById('ghost-canvas');
+  const ghostCtx    = ghostCanvas.getContext('2d', { alpha: true });
+  const layer       = document.getElementById('quotes-layer');
 
-  ghostLayer.style.setProperty('--pad', paddingV + 'vmin');
   layer.style.setProperty('--pad', paddingV + 'vmin');
 
     // ---- Front layer registry (unchanged behavior) ----
@@ -130,9 +117,9 @@
   // Tracks last server list for front (newest -> oldest)
   let lastIds = [];
 
-  // ---- Ghost layer registry ----
-  const ghostById = new Map();   // id -> ghostEl
-  const ghostBoxes = [];         // cached placed boxes for overlap checks
+   // ---- Ghost canvas registry ----
+  // We store ghost data, not DOM nodes.
+  const ghostById = new Map(); // id -> { id, text, x, y, w, h }
 
   function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
 
@@ -248,10 +235,29 @@
     el.style.visibility = '';
   }
 
-    // ---------- Ghost helpers ----------
-  const GHOST_FONT_PX = 7.7;     // ghosts fixed size
-  const GHOST_MAXW_VW = 40;      // keep same wrapping style as front
-  const GHOST_TRIES   = 80;
+      // Ghost tuning
+  const GHOST_FONT_PX   = 7.7;    // fixed px size
+  const GHOST_ALPHA     = 0.28;   // opacity
+  const GHOST_MAXW_VW   = 40;     // wrap width
+  const GHOST_TRIES     = 80;     // placement attempts
+  const GHOST_PAD_EXTRA = 2;      // px spacing between ghosts (best effort)
+
+  function resizeGhostCanvas() {
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.floor(window.innerWidth);
+    const h = Math.floor(window.innerHeight);
+
+    ghostCanvas.width  = Math.floor(w * dpr);
+    ghostCanvas.height = Math.floor(h * dpr);
+    ghostCanvas.style.width  = w + 'px';
+    ghostCanvas.style.height = h + 'px';
+
+    ghostCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function ghostMaxWidthPx() {
+    return (window.innerWidth * (GHOST_MAXW_VW / 100));
+  }
 
   function rectsOverlap(a, b) {
     return (
@@ -262,83 +268,151 @@
     );
   }
 
-  function placeGhost(el) {
-    el.style.visibility = 'hidden';
-    ghostLayer.appendChild(el);
+  function measureWrapped(text) {
+    const maxW = ghostMaxWidthPx();
+    const raw = String(text || '');
+    const words = raw.split(/\s+/);
 
-    const padPx = getPadPx();
+    const lines = [];
+    let line = '';
 
-    const w = el.offsetWidth;
-    const h = el.offsetHeight;
+    for (let i = 0; i < words.length; i++) {
+      const test = line ? (line + ' ' + words[i]) : words[i];
+      const m = ghostCtx.measureText(test).width;
+      if (m <= maxW) {
+        line = test;
+      } else {
+        if (line) lines.push(line);
+        line = words[i];
+      }
+    }
+    if (line) lines.push(line);
 
-    const W = window.innerWidth  - w - padPx * 2;
-    const H = window.innerHeight - h - padPx * 2;
+    let w = 0;
+    for (const ln of lines) {
+      w = Math.max(w, ghostCtx.measureText(ln).width);
+    }
 
-    let placed = false;
+    const lineH = GHOST_FONT_PX * 1.2;
+    const h = lines.length * lineH;
+
+    return { w, h, lines, lineH };
+  }
+
+  function clearGhostCanvas() {
+    ghostCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+  }
+
+  function redrawGhosts() {
+    clearGhostCanvas();
+
+    ghostCtx.save();
+    ghostCtx.globalAlpha = GHOST_ALPHA;
+    ghostCtx.fillStyle = '#f2f2f2';
+    ghostCtx.textBaseline = 'top';
+    ghostCtx.font = `300 ${GHOST_FONT_PX}px Zain, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif`;
+
+    for (const g of ghostById.values()) {
+      const m = g._measure;
+      if (!m) continue;
+
+      let y = g.y;
+      for (const ln of m.lines) {
+        ghostCtx.fillText(ln, g.x, y);
+        y += m.lineH;
+      }
+    }
+
+    ghostCtx.restore();
+  }
+
+  function placeGhostMeasured(measured, existingBoxes, padPx) {
+    const w = measured.w;
+    const h = measured.h;
+
+    const maxX = Math.max(padPx, window.innerWidth  - w - padPx);
+    const maxY = Math.max(padPx, window.innerHeight - h - padPx);
 
     for (let t = 0; t < GHOST_TRIES; t++) {
-      const x = padPx + Math.random() * Math.max(0, W);
-      const y = padPx + Math.random() * Math.max(0, H);
+      const x = padPx + Math.random() * Math.max(0, (maxX - padPx));
+      const y = padPx + Math.random() * Math.max(0, (maxY - padPx));
 
-      const box = { x, y, w, h };
+      const box = { x, y, w: w + GHOST_PAD_EXTRA, h: h + GHOST_PAD_EXTRA };
 
       let ok = true;
-      for (let i = 0; i < ghostBoxes.length; i++) {
-        if (rectsOverlap(box, ghostBoxes[i])) { ok = false; break; }
+      for (let i = 0; i < existingBoxes.length; i++) {
+        if (rectsOverlap(box, existingBoxes[i])) { ok = false; break; }
       }
-
-      if (ok) {
-        el.style.left = x + 'px';
-        el.style.top  = y + 'px';
-        ghostBoxes.push(box);
-        placed = true;
-        break;
-      }
+      if (ok) return { x, y, box };
     }
 
-    if (!placed) {
-      const x = padPx + Math.random() * Math.max(0, W);
-      const y = padPx + Math.random() * Math.max(0, H);
-      el.style.left = x + 'px';
-      el.style.top  = y + 'px';
-      ghostBoxes.push({ x, y, w, h });
-    }
-
-    el.style.visibility = '';
+    const x = padPx + Math.random() * Math.max(0, (maxX - padPx));
+    const y = padPx + Math.random() * Math.max(0, (maxY - padPx));
+    return { x, y, box: { x, y, w: w + GHOST_PAD_EXTRA, h: h + GHOST_PAD_EXTRA } };
   }
 
-  function makeGhost(item) {
-    const text = (item && item.text) ? item.text : '';
-    const g = document.createElement('div');
-    g.className = 'ghost';
-    g.dataset.id = String(item.id);
-    g.textContent = text;
-
-    g.style.fontSize = `${GHOST_FONT_PX}px`;
-    g.style.maxWidth = GHOST_MAXW_VW + 'vw';
-
-    return g;
-  }
-
-  function ensureGhost(item) {
+  function ensureGhost(item, existingBoxes, padPx) {
     const id = String(item.id);
     if (ghostById.has(id)) return;
 
-    const g = makeGhost(item);
-    placeGhost(g);
+    ghostCtx.save();
+    ghostCtx.font = `300 ${GHOST_FONT_PX}px Zain, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif`;
 
-    // Newer ghosts end up on top because they are appended later (DOM order).
-    ghostById.set(id, g);
+    const measured = measureWrapped(item.text || '');
+    ghostCtx.restore();
+
+    const placed = placeGhostMeasured(measured, existingBoxes, padPx);
+
+    ghostById.set(id, {
+      id,
+      text: String(item.text || ''),
+      x: placed.x,
+      y: placed.y,
+      w: measured.w,
+      h: measured.h,
+      _measure: measured
+    });
+
+    existingBoxes.push(placed.box);
   }
 
   function removeGhostById(id) {
-    const el = ghostById.get(id);
-    if (!el) return;
-    ghostById.delete(id);
-    if (el.isConnected) el.remove();
-    // Note: we are not compacting ghostBoxes to avoid O(n) rebuilds.
-    // Overlap avoidance remains "best effort" for new placements.
+    ghostById.delete(String(id));
   }
+
+  resizeGhostCanvas();
+redrawGhosts();
+
+window.addEventListener('resize', () => {
+  resizeGhostCanvas();
+
+  const padPx = getPadPx();
+  const boxes = [];
+
+  ghostCtx.save();
+  ghostCtx.font = `300 ${GHOST_FONT_PX}px Zain, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif`;
+
+  const entries = Array.from(ghostById.values());
+  ghostById.clear();
+
+  for (const g of entries) {
+    const measured = measureWrapped(g.text);
+    const placed = placeGhostMeasured(measured, boxes, padPx);
+    ghostById.set(String(g.id), {
+      id: String(g.id),
+      text: g.text,
+      x: placed.x,
+      y: placed.y,
+      w: measured.w,
+      h: measured.h,
+      _measure: measured
+    });
+    boxes.push(placed.box);
+  }
+
+  ghostCtx.restore();
+  redrawGhosts();
+});
 
   // ---------- Remove element from FRONT layer ----------
   function removeEl(el) {
@@ -498,12 +572,12 @@
     setTimeout(() => applyVisuals(), 20);
   }
   // Incremental sync: add newest, remove dropped, do not rebuild
-    async function pollApproved() {
+      async function pollApproved() {
     try {
       const res = await fetch('/api/approved?_=' + Date.now(), { cache: 'no-store' });
       const data = await res.json();
 
-      // Server can return up to 2000 now
+      // Server returns up to 2000 now
       const all = (data.items || []);
 
       // Front: newest maxActive
@@ -514,7 +588,6 @@
         (frontIdsNewest.length === lastIds.length) &&
         frontIdsNewest.every((id, i) => id === lastIds[i]);
 
-      // Build keep sets for reconciliation
       const keepFront = new Set(frontIdsNewest);
       const keepAll   = new Set(all.map(it => String(it.id)));
 
@@ -526,24 +599,39 @@
         }
       }
 
-      // 2) Ensure ghosts exist for everything NOT in front
-      //    Ghosts will accumulate up to the server limit and stay unless removed from approved.
+      // 2) Ghosts: ensure every item NOT in front is in ghost canvas
+      // Build existing boxes from current ghosts so we can place new ones with best effort.
+      const padPx = getPadPx();
+      const ghostBoxes = [];
+      for (const g of ghostById.values()) {
+        ghostBoxes.push({ x: g.x, y: g.y, w: g.w + 2, h: g.h + 2 });
+      }
+
+      let ghostChanged = false;
+
       for (let i = 0; i < all.length; i++) {
         const it = all[i];
         const id = String(it.id);
         if (!keepFront.has(id)) {
-          ensureGhost(it);
+          const before = ghostById.size;
+          ensureGhost(it, ghostBoxes, padPx);
+          if (ghostById.size !== before) ghostChanged = true;
         }
       }
 
-      // 3) Remove ghosts that are no longer approved (admin removed/rejected)
-      for (const [id, gEl] of ghostById.entries()) {
+      // 3) Remove ghosts that are no longer approved
+      for (const id of Array.from(ghostById.keys())) {
         if (!keepAll.has(id)) {
           removeGhostById(id);
+          ghostChanged = true;
         }
       }
 
-      // 4) Spawn missing FRONT items (oldest->newest so order is correct for Set)
+      if (ghostChanged) {
+        redrawGhosts();
+      }
+
+      // 4) Spawn missing FRONT items (oldest->newest so Set order stays oldest->newest)
       if (!unchanged) {
         for (let i = frontItems.length - 1; i >= 0; i--) {
           const it = frontItems[i];
@@ -589,6 +677,7 @@
 
       // Remove from ghost if present
       removeGhostById(targetId);
+      redrawGhosts();
 
       applyVisuals();
       setTimeout(pollApproved, 300);
