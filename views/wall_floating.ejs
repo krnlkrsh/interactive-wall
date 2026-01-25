@@ -68,7 +68,7 @@
     font-family: "Zain", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
     font-weight: 300;
     white-space: pre-wrap;
-    opacity: 0.18;       /* transparent ghosts */
+    opacity: 0.28;       /* transparent ghosts */
     user-select: none;
   }
 </style>
@@ -88,7 +88,7 @@
   // ---- URL params with sensible defaults ----
   const params     = new URLSearchParams(location.search);
   const videoSrc   = params.get('video') || 'video/background.mp4'; // file under /public/
-  const maxActive  = 8; // hard lock to 8
+  const maxActive  = 10; // hard lock to 10
   const fontsize   = params.get('fontsize') || '3vmin';
   const fontMinPx  = parseInt(params.get('fontMinPx') || '24', 10);
   const fontMaxPx  = parseInt(params.get('fontMaxPx') || '72', 10);
