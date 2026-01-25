@@ -49,14 +49,6 @@
     font-family: "Zain", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
     font-weight: 300;
   }
-    .quote .dbg {
-    display: block;
-    margin-top: 0.25em;
-    font-size: 0.70em;
-    opacity: 0.75;
-    letter-spacing: 0;
-    text-shadow: none;
-}
 </style>
 
 <main class="wall dark" style="padding:0; margin:0;">
@@ -70,8 +62,8 @@
   const params     = new URLSearchParams(location.search);
   const videoSrc   = params.get('video') || 'video/background.mp4'; // file under /public/
   const maxActive  = 10; // hard lock to 10
-  const fontsize   = '0.8vmin';
-  const fontMinPx  = parseInt(params.get('fontMinPx') || '8', 10);
+  const fontsize   = params.get('fontsize') || '3vmin';
+  const fontMinPx  = parseInt(params.get('fontMinPx') || '24', 10);
   const fontMaxPx  = parseInt(params.get('fontMaxPx') || '72', 10);
   const fadeInSec  = parseFloat(params.get('fadeInSec') || '5');
   const visibleMin = parseFloat(params.get('visibleMin') || '30');
@@ -84,7 +76,7 @@
   const lenMaxScale       = 1.08;    // scale for very short texts
 
   // Age shrink per NEW post added (cumulative)
-  const AGE_STEP_FACTOR = 1; // 9% smaller each new post
+  const AGE_STEP_FACTOR = 0.91; // 9% smaller each new post
 
   // Smooth repulsion (high FPS)
   const REPULSION_RANGE     = 26;    // px margin where pushing starts
@@ -145,12 +137,6 @@
     }
 
     q.textContent = text;
-
-// Debug line showing effective rendered font size (updates in animate())
-const dbg = document.createElement('span');
-dbg.className = 'dbg';
-dbg.textContent = '';
-q.appendChild(dbg);
 
     // Base font size stays clamped, then we multiply via transform scale for age+length effects
     q.style.fontSize = `clamp(${fontMinPx}px, ${fontsize}, ${fontMaxPx}px)`;
@@ -339,13 +325,6 @@ q.appendChild(dbg);
       const scale = parseFloat(el.dataset.finalScale || '1') || 1;
       el.style.transform = `translate3d(${m.x.toFixed(2)}px, ${m.y.toFixed(2)}px, 0px) scale(${scale.toFixed(3)})`;
       el.style.transformOrigin = 'top left';
-// Update debug: effective font size in px after transform scale
-const dbg = el.querySelector('.dbg');
-if (dbg) {
-  const basePx = parseFloat(getComputedStyle(el).fontSize) || 0; // before transform
-  const effPx = basePx * scale; // after transform scale
-  dbg.textContent = `${effPx.toFixed(1)}px`;
-}
     }
 
     requestAnimationFrame(animate);
