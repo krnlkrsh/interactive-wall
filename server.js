@@ -30,7 +30,7 @@ const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 const MAX_CHARS = parseInt(process.env.MAX_CHARS || '300', 10);
 
 // NEW: how many approved items the wall fetch returns
-const APPROVED_FEED_LIMIT = parseInt(process.env.APPROVED_FEED_LIMIT || '8', 10);
+const APPROVED_FEED_LIMIT = parseInt(process.env.APPROVED_FEED_LIMIT || '2000', 10);
 
 // Load banned terms
 const bannedPath = path.join(__dirname, 'data', 'banned.txt');
