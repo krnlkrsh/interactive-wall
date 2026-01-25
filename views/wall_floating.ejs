@@ -21,11 +21,20 @@
     background: #000;
   }
 
-  /* Layer that holds floating quotes */
+    /* Ghost layer lives UNDER main quotes */
+  .ghost-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 1;          /* above video (0), below quotes-layer (2) */
+    pointer-events: none;
+    padding: var(--pad, 5vmin);
+  }
+
+  /* Main/front layer stays on top */
   .quotes-layer {
     position: fixed;
     inset: 0;
-    z-index: 1;
+    z-index: 2;
     pointer-events: none;
     padding: var(--pad, 5vmin);
   }
@@ -49,10 +58,28 @@
     font-family: "Zain", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
     font-weight: 300;
   }
+
+  /* Ghosts are smaller + transparent and never animated */
+  .ghost {
+    position: absolute;
+    color: #f2f2f2;
+    text-shadow: 0 2px 18px rgba(0,0,0,0.35);
+    line-height: 1.2;
+    font-family: "Zain", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    font-weight: 300;
+    white-space: pre-wrap;
+    opacity: 0.18;       /* transparent ghosts */
+    user-select: none;
+  }
 </style>
 
 <main class="wall dark" style="padding:0; margin:0;">
   <video id="bg-video" autoplay muted loop playsinline></video>
+
+  <!-- Ghost layer lives UNDER the main quotes -->
+  <div id="ghost-layer" class="ghost-layer"></div>
+
+  <!-- Main/front layer (unchanged behavior) -->
   <div id="quotes-layer" class="quotes-layer"></div>
 </main>
 
@@ -61,7 +88,7 @@
   // ---- URL params with sensible defaults ----
   const params     = new URLSearchParams(location.search);
   const videoSrc   = params.get('video') || 'video/background.mp4'; // file under /public/
-  const maxActive  = 10; // hard lock to 10
+  const maxActive  = 8; // hard lock to 8
   const fontsize   = params.get('fontsize') || '3vmin';
   const fontMinPx  = parseInt(params.get('fontMinPx') || '24', 10);
   const fontMaxPx  = parseInt(params.get('fontMaxPx') || '72', 10);
@@ -89,16 +116,23 @@
   video.src = '/static/' + videoSrc;
   video.onerror = () => { video.remove(); document.body.style.background = '#000'; };
 
-  const layer = document.getElementById('quotes-layer');
+    const ghostLayer = document.getElementById('ghost-layer');
+  const layer      = document.getElementById('quotes-layer');
+
+  ghostLayer.style.setProperty('--pad', paddingV + 'vmin');
   layer.style.setProperty('--pad', paddingV + 'vmin');
 
-  // ---- Active quotes registry ----
+    // ---- Front layer registry (unchanged behavior) ----
   // Keep order: oldest -> newest
   const active = new Set();
-  // Fast lookup by id
+  // Fast lookup by id (front only)
   const byId = new Map();
-  // Tracks last server list (newest -> oldest)
+  // Tracks last server list for front (newest -> oldest)
   let lastIds = [];
+
+  // ---- Ghost layer registry ----
+  const ghostById = new Map();   // id -> ghostEl
+  const ghostBoxes = [];         // cached placed boxes for overlap checks
 
   function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
 
@@ -214,6 +248,99 @@
     el.style.visibility = '';
   }
 
+    // ---------- Ghost helpers ----------
+  const GHOST_FONT_PX = 7.7;     // ghosts fixed size
+  const GHOST_MAXW_VW = 40;      // keep same wrapping style as front
+  const GHOST_TRIES   = 80;
+
+  function rectsOverlap(a, b) {
+    return (
+      a.x < (b.x + b.w) &&
+      (a.x + a.w) > b.x &&
+      a.y < (b.y + b.h) &&
+      (a.y + a.h) > b.y
+    );
+  }
+
+  function placeGhost(el) {
+    el.style.visibility = 'hidden';
+    ghostLayer.appendChild(el);
+
+    const padPx = getPadPx();
+
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+
+    const W = window.innerWidth  - w - padPx * 2;
+    const H = window.innerHeight - h - padPx * 2;
+
+    let placed = false;
+
+    for (let t = 0; t < GHOST_TRIES; t++) {
+      const x = padPx + Math.random() * Math.max(0, W);
+      const y = padPx + Math.random() * Math.max(0, H);
+
+      const box = { x, y, w, h };
+
+      let ok = true;
+      for (let i = 0; i < ghostBoxes.length; i++) {
+        if (rectsOverlap(box, ghostBoxes[i])) { ok = false; break; }
+      }
+
+      if (ok) {
+        el.style.left = x + 'px';
+        el.style.top  = y + 'px';
+        ghostBoxes.push(box);
+        placed = true;
+        break;
+      }
+    }
+
+    if (!placed) {
+      const x = padPx + Math.random() * Math.max(0, W);
+      const y = padPx + Math.random() * Math.max(0, H);
+      el.style.left = x + 'px';
+      el.style.top  = y + 'px';
+      ghostBoxes.push({ x, y, w, h });
+    }
+
+    el.style.visibility = '';
+  }
+
+  function makeGhost(item) {
+    const text = (item && item.text) ? item.text : '';
+    const g = document.createElement('div');
+    g.className = 'ghost';
+    g.dataset.id = String(item.id);
+    g.textContent = text;
+
+    g.style.fontSize = `${GHOST_FONT_PX}px`;
+    g.style.maxWidth = GHOST_MAXW_VW + 'vw';
+
+    return g;
+  }
+
+  function ensureGhost(item) {
+    const id = String(item.id);
+    if (ghostById.has(id)) return;
+
+    const g = makeGhost(item);
+    placeGhost(g);
+
+    // Newer ghosts end up on top because they are appended later (DOM order).
+    ghostById.set(id, g);
+  }
+
+  function removeGhostById(id) {
+    const el = ghostById.get(id);
+    if (!el) return;
+    ghostById.delete(id);
+    if (el.isConnected) el.remove();
+    // Note: we are not compacting ghostBoxes to avoid O(n) rebuilds.
+    // Overlap avoidance remains "best effort" for new placements.
+  }
+
+  // ---------- Remove element from FRONT layer ----------
   function removeEl(el) {
     if (!el) return;
     motion.delete(el);
@@ -371,39 +498,68 @@
     setTimeout(() => applyVisuals(), 20);
   }
   // Incremental sync: add newest, remove dropped, do not rebuild
-  async function pollApproved() {
+    async function pollApproved() {
     try {
       const res = await fetch('/api/approved?_=' + Date.now(), { cache: 'no-store' });
       const data = await res.json();
-      const items = (data.items || []).slice(0, maxActive);
 
-      const idsNewest = items.map(it => String(it.id));
-      const unchanged = (idsNewest.length === lastIds.length) && idsNewest.every((id, i) => id === lastIds[i]);
-      if (unchanged) return;
+      // Server can return up to 2000 now
+      const all = (data.items || []);
 
-      const keep = new Set(idsNewest);
+      // Front: newest maxActive
+      const frontItems = all.slice(0, maxActive);
+      const frontIdsNewest = frontItems.map(it => String(it.id));
+
+      const unchanged =
+        (frontIdsNewest.length === lastIds.length) &&
+        frontIdsNewest.every((id, i) => id === lastIds[i]);
+
+      // Build keep sets for reconciliation
+      const keepFront = new Set(frontIdsNewest);
+      const keepAll   = new Set(all.map(it => String(it.id)));
+
+      // 1) Remove front elements that no longer belong in the FRONT set
       for (const el of Array.from(active)) {
         const id = el.dataset ? String(el.dataset.id) : null;
-        if (id && !keep.has(id)) {
+        if (id && !keepFront.has(id)) {
           removeEl(el);
         }
       }
 
-      for (let i = items.length - 1; i >= 0; i--) {
-        const it = items[i];
+      // 2) Ensure ghosts exist for everything NOT in front
+      //    Ghosts will accumulate up to the server limit and stay unless removed from approved.
+      for (let i = 0; i < all.length; i++) {
+        const it = all[i];
         const id = String(it.id);
-        if (!byId.has(id)) {
-          spawn(it);
+        if (!keepFront.has(id)) {
+          ensureGhost(it);
         }
       }
 
-      while (active.size > maxActive) {
-        removeEl(active.values().next().value);
+      // 3) Remove ghosts that are no longer approved (admin removed/rejected)
+      for (const [id, gEl] of ghostById.entries()) {
+        if (!keepAll.has(id)) {
+          removeGhostById(id);
+        }
       }
 
-      lastIds = idsNewest;
+      // 4) Spawn missing FRONT items (oldest->newest so order is correct for Set)
+      if (!unchanged) {
+        for (let i = frontItems.length - 1; i >= 0; i--) {
+          const it = frontItems[i];
+          const id = String(it.id);
+          if (!byId.has(id)) {
+            spawn(it);
+          }
+        }
 
-      applyVisuals();
+        while (active.size > maxActive) {
+          removeEl(active.values().next().value);
+        }
+
+        lastIds = frontIdsNewest;
+        applyVisuals();
+      }
     } catch (e) {
       console.warn('pollApproved failed', e);
     }
@@ -423,12 +579,16 @@
       setTimeout(pollApproved, 300);
     });
 
-    socket.on('removed_item', (payload) => {
+        socket.on('removed_item', (payload) => {
       if (!payload || payload.id == null) return;
       const targetId = String(payload.id);
 
+      // Remove from front if present
       const el = byId.get(targetId);
       if (el) removeEl(el);
+
+      // Remove from ghost if present
+      removeGhostById(targetId);
 
       applyVisuals();
       setTimeout(pollApproved, 300);
