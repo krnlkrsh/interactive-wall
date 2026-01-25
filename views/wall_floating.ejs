@@ -62,8 +62,8 @@
   const params     = new URLSearchParams(location.search);
   const videoSrc   = params.get('video') || 'video/background.mp4'; // file under /public/
   const maxActive  = 10; // hard lock to 10
-  const fontsize   = '1.2vmin';
-  const fontMinPx  = parseInt(params.get('fontMinPx') || '14', 10);
+  const fontsize   = '0.8vmin';
+  const fontMinPx  = parseInt(params.get('fontMinPx') || '8', 10);
   const fontMaxPx  = parseInt(params.get('fontMaxPx') || '72', 10);
   const fadeInSec  = parseFloat(params.get('fadeInSec') || '5');
   const visibleMin = parseFloat(params.get('visibleMin') || '30');
@@ -76,7 +76,7 @@
   const lenMaxScale       = 1.08;    // scale for very short texts
 
   // Age shrink per NEW post added (cumulative)
-  const AGE_STEP_FACTOR = 0.91; // 9% smaller each new post
+  const AGE_STEP_FACTOR = 1; // 9% smaller each new post
 
   // Smooth repulsion (high FPS)
   const REPULSION_RANGE     = 26;    // px margin where pushing starts
