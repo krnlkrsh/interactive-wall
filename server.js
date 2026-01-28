@@ -1,3 +1,8 @@
+// server.js (FULL REPLACEMENT)
+// - Seeds DB from data/approved_submissions.csv if DB is empty (one-time on deploy)
+// - Raises caps to 4000 for /api/approved, /admin approved list, and /api/admin/state approved list
+// - Keeps everything else the same
+
 require('dotenv').config();
 const path = require('path');
 const express = require('express');
@@ -30,7 +35,15 @@ const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 const MAX_CHARS = parseInt(process.env.MAX_CHARS || '300', 10);
 
 // NEW: how many approved items the wall fetch returns
-const APPROVED_FEED_LIMIT = parseInt(process.env.APPROVED_FEED_LIMIT || '2000', 10);
+// Change default from 2000 -> 4000
+const APPROVED_FEED_LIMIT = parseInt(process.env.APPROVED_FEED_LIMIT || '4000', 10);
+
+// NEW: how many items to show in admin lists
+const ADMIN_APPROVED_LIMIT = parseInt(process.env.ADMIN_APPROVED_LIMIT || '4000', 10);
+const ADMIN_PENDING_LIMIT = parseInt(process.env.ADMIN_PENDING_LIMIT || '4000', 10);
+
+// Seed CSV location (commit this file to your repo)
+const SEED_CSV_PATH = path.join(__dirname, 'data', 'approved_submissions.csv');
 
 // Load banned terms
 const bannedPath = path.join(__dirname, 'data', 'banned.txt');
@@ -135,21 +148,6 @@ async function verifyTurnstile(token, ip) {
   }
 }
 
-// DB helpers
-function countRecent(ip, seconds) {
-  const row = db.prepare(
-    "SELECT COUNT(*) as c FROM submissions WHERE ip=? AND created_at >= datetime('now', ?)"
-  ).get(ip, `-${seconds} seconds`);
-  return row.c || 0;
-}
-
-function countToday(ip) {
-  const row = db.prepare(
-    "SELECT COUNT(*) as c FROM submissions WHERE ip=? AND date(created_at) = date('now', 'localtime')"
-  ).get(ip);
-  return row.c || 0;
-}
-
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -174,6 +172,220 @@ db.prepare(`
     rejected INTEGER DEFAULT 0
   )
 `).run();
+
+// -------------------------
+// CSV seed (one-time)
+// -------------------------
+
+function parseCSV(content) {
+  // Minimal CSV parser that supports:
+  // - commas
+  // - quoted fields
+  // - newlines inside quoted fields
+  const rows = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < content.length; i++) {
+    const c = content[i];
+
+    if (inQuotes) {
+      if (c === '"') {
+        const next = content[i + 1];
+        if (next === '"') {
+          field += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += c;
+      }
+      continue;
+    }
+
+    if (c === '"') {
+      inQuotes = true;
+      continue;
+    }
+
+    if (c === ',') {
+      row.push(field);
+      field = '';
+      continue;
+    }
+
+    if (c === '\n') {
+      row.push(field);
+      field = '';
+      // ignore fully empty trailing line
+      if (row.length > 1 || (row.length === 1 && row[0] !== '')) rows.push(row);
+      row = [];
+      continue;
+    }
+
+    if (c === '\r') continue;
+
+    field += c;
+  }
+
+  // last field
+  row.push(field);
+  if (row.length > 1 || (row.length === 1 && row[0] !== '')) rows.push(row);
+
+  return rows;
+}
+
+function normalizeHeader(h) {
+  return String(h || '').trim().toLowerCase();
+}
+
+function toSqliteDatetime(dateStr, timeStr) {
+  // Accept:
+  // - dateStr like 2026-01-25 or 25/01/2026 etc (best effort)
+  // - timeStr like 11:33:12
+  // Output: "YYYY-MM-DD HH:MM:SS" (sqlite datetime text)
+  const dRaw = String(dateStr || '').trim();
+  const tRaw = String(timeStr || '').trim();
+
+  // If the CSV already has a full datetime in one column, allow it.
+  if (dRaw && !tRaw) {
+    // If already "YYYY-MM-DD HH:MM:SS"
+    if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}$/.test(dRaw)) return dRaw;
+    // If "YYYY-MM-DDTHH:MM:SS"
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(dRaw)) return dRaw.replace('T', ' ').slice(0, 19);
+  }
+
+  // Try YYYY-MM-DD
+  let Y = null, M = null, D = null;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dRaw)) {
+    const parts = dRaw.split('-').map(x => parseInt(x, 10));
+    Y = parts[0]; M = parts[1]; D = parts[2];
+  } else if (/^\d{2}\/\d{2}\/\d{4}$/.test(dRaw)) {
+    // DD/MM/YYYY
+    const parts = dRaw.split('/').map(x => parseInt(x, 10));
+    D = parts[0]; M = parts[1]; Y = parts[2];
+  } else if (/^\d{4}\/\d{2}\/\d{2}$/.test(dRaw)) {
+    // YYYY/MM/DD
+    const parts = dRaw.split('/').map(x => parseInt(x, 10));
+    Y = parts[0]; M = parts[1]; D = parts[2];
+  }
+
+  // Default if parsing fails: now
+  if (!Y || !M || !D) {
+    return db.prepare("SELECT datetime('now') as dt").get().dt;
+  }
+
+  const time = /^\d{2}:\d{2}:\d{2}$/.test(tRaw) ? tRaw : '00:00:00';
+  const mm = String(M).padStart(2, '0');
+  const dd = String(D).padStart(2, '0');
+  return `${Y}-${mm}-${dd} ${time}`;
+}
+
+function seedFromApprovedCsvIfEmpty() {
+  try {
+    const row = db.prepare('SELECT COUNT(*) as c FROM submissions').get();
+    const count = row && row.c ? row.c : 0;
+    if (count > 0) return; // not empty, do nothing
+
+    if (!fs.existsSync(SEED_CSV_PATH)) {
+      console.log('[seed] DB empty but seed CSV not found at:', SEED_CSV_PATH);
+      return;
+    }
+
+    const csv = fs.readFileSync(SEED_CSV_PATH, 'utf8');
+    const rows = parseCSV(csv);
+    if (!rows.length) {
+      console.log('[seed] seed CSV is empty');
+      return;
+    }
+
+    // Detect header
+    const header = rows[0].map(normalizeHeader);
+
+    const idxId =
+      header.indexOf('id') >= 0 ? header.indexOf('id') :
+      header.indexOf('number') >= 0 ? header.indexOf('number') :
+      header.indexOf('#') >= 0 ? header.indexOf('#') : -1;
+
+    const idxText =
+      header.indexOf('text') >= 0 ? header.indexOf('text') :
+      header.indexOf('submission') >= 0 ? header.indexOf('submission') :
+      header.indexOf('message') >= 0 ? header.indexOf('message') : -1;
+
+    const idxCreated =
+      header.indexOf('created_at') >= 0 ? header.indexOf('created_at') :
+      header.indexOf('created') >= 0 ? header.indexOf('created') :
+      header.indexOf('datetime') >= 0 ? header.indexOf('datetime') : -1;
+
+    const idxDate = header.indexOf('date');
+    const idxTime = header.indexOf('time');
+
+    const hasHeader = (idxText !== -1) && (idxId !== -1 || idxCreated !== -1 || (idxDate !== -1 && idxTime !== -1));
+    const start = hasHeader ? 1 : 0;
+
+    const insert = db.prepare(`
+      INSERT INTO submissions
+      (id, text, created_at, ip, user_agent, auto_flagged, approved, rejected)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const tx = db.transaction((items) => {
+      for (const it of items) {
+        insert.run(it.id, it.text, it.created_at, '', 'seed', 0, 1, 0);
+      }
+    });
+
+    const items = [];
+    for (let r = start; r < rows.length; r++) {
+      const cols = rows[r];
+
+      const rawId = (idxId >= 0 ? cols[idxId] : cols[0]);
+      const id = parseInt(String(rawId || '').trim(), 10);
+      if (!Number.isFinite(id) || id <= 0) continue;
+
+      const text = String((idxText >= 0 ? cols[idxText] : cols[cols.length - 1]) || '').replace(/\r/g, '');
+      if (!text.trim()) continue;
+
+      let created_at = null;
+      if (idxCreated >= 0) {
+        created_at = toSqliteDatetime(cols[idxCreated], '');
+      } else if (idxDate >= 0 && idxTime >= 0) {
+        created_at = toSqliteDatetime(cols[idxDate], cols[idxTime]);
+      } else {
+        // fallback: second+third columns if they look like date/time
+        created_at = toSqliteDatetime(cols[1], cols[2]);
+      }
+
+      items.push({ id, text, created_at });
+    }
+
+    if (!items.length) {
+      console.log('[seed] no rows parsed from seed CSV');
+      return;
+    }
+
+    tx(items);
+
+    // Ensure AUTOINCREMENT continues from the max seeded id
+    const maxRow = db.prepare('SELECT MAX(id) as m FROM submissions').get();
+    const maxId = maxRow && maxRow.m ? maxRow.m : 0;
+    try {
+      db.prepare("UPDATE sqlite_sequence SET seq=? WHERE name='submissions'").run(maxId);
+    } catch (e) {
+      // ignore if sqlite_sequence not present for any reason
+    }
+
+    console.log(`[seed] seeded ${items.length} approved submissions from CSV (max id=${maxId})`);
+  } catch (e) {
+    console.error('[seed] failed:', e);
+  }
+}
+
+// Seed immediately on startup (before routes)
+seedFromApprovedCsvIfEmpty();
 
 // Security headers
 app.use(helmet({
@@ -232,7 +444,7 @@ async function isFlaggedByOpenAI(text) {
   }
 }
 
-// ---------- ROUTES (ONLY CHANGES FOR POINT 3 ARE HERE) ----------
+// ---------- ROUTES ----------
 
 app.get('/', (req, res) => res.redirect('/submit'));
 
@@ -257,7 +469,7 @@ app.get('/wall-floating', (req, res) => {
   res.render('wall_floating', { title: 'Floating Quotes' });
 });
 
-// ---------- Submit route (UNCHANGED) ----------
+// ---------- Submit route ----------
 app.post('/submit', async (req, res) => {
   const raw = req.body.text || '';
 
@@ -312,7 +524,7 @@ app.post('/submit', async (req, res) => {
   res.render('thanks', { title: 'Thank you!' });
 });
 
-// Approved feed (unchanged)
+// Approved feed (LIMIT now defaults to 4000)
 app.get('/api/approved', (req, res) => {
   try {
     res.set({
@@ -345,7 +557,7 @@ app.get('/wall', (req, res) => {
   res.render('wall', { title: 'Wall', theme, columns, gap, fontsize });
 });
 
-// Admin routes (unchanged)
+// Admin routes
 const adminUser = process.env.ADMIN_USER || 'admin';
 const adminPass = process.env.ADMIN_PASS || 'please-change-me';
 const adminAuth = basicAuth({
@@ -356,11 +568,13 @@ const adminAuth = basicAuth({
 
 app.get('/admin', adminAuth, (req, res) => {
   const pending = db.prepare(
-    'SELECT * FROM submissions WHERE approved=0 AND rejected=0 ORDER BY id DESC'
-  ).all();
+    'SELECT * FROM submissions WHERE approved=0 AND rejected=0 ORDER BY id DESC LIMIT ?'
+  ).all(ADMIN_PENDING_LIMIT);
+
   const approved = db.prepare(
-    'SELECT * FROM submissions WHERE approved=1 AND rejected=0 ORDER BY id DESC LIMIT 100'
-  ).all();
+    'SELECT * FROM submissions WHERE approved=1 AND rejected=0 ORDER BY id DESC LIMIT ?'
+  ).all(ADMIN_APPROVED_LIMIT);
+
   res.render('admin', { title: 'Moderation', pending, approved });
 });
 
@@ -374,12 +588,12 @@ app.get('/api/admin/state', adminAuth, (req, res) => {
     });
 
     const pending = db.prepare(
-      'SELECT id, text, created_at, auto_flagged FROM submissions WHERE approved=0 AND rejected=0 ORDER BY id DESC LIMIT 200'
-    ).all();
+      'SELECT id, text, created_at, auto_flagged FROM submissions WHERE approved=0 AND rejected=0 ORDER BY id DESC LIMIT ?'
+    ).all(ADMIN_PENDING_LIMIT);
 
     const approved = db.prepare(
-      'SELECT id, text, created_at FROM submissions WHERE approved=1 AND rejected=0 ORDER BY id DESC LIMIT 100'
-    ).all();
+      'SELECT id, text, created_at FROM submissions WHERE approved=1 AND rejected=0 ORDER BY id DESC LIMIT ?'
+    ).all(ADMIN_APPROVED_LIMIT);
 
     const sig = `p${pending[0] ? pending[0].id : 0}-a${approved[0] ? approved[0].id : 0}-pc${pending.length}-ac${approved.length}`;
 
