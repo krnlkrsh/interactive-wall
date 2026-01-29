@@ -628,6 +628,22 @@ app.post('/admin/remove/:id', adminAuth, (req, res) => {
   res.redirect('/admin');
 });
 
+app.post('/admin/move-back/:id', adminAuth, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  io.emit('removed_item', { id });
+  res.redirect('/admin');
+});
+
+app.post('/admin/bring-front/:id', adminAuth, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const item = db.prepare(
+    'SELECT id, text, created_at FROM submissions WHERE id=? AND approved=1 AND rejected=0'
+  ).get(id);
+
+  if (item) io.emit('approved_item', item);
+  res.redirect('/admin');
+});
+
 app.post('/admin/bulk', adminAuth, (req, res) => {
   const ids = (req.body.ids || '')
     .split(',')
