@@ -54,17 +54,12 @@
             <pre class="content"><%= a.text %></pre>
 
             <form class="actions" method="post" action="/admin/remove/<%= a.id %>">
-              <button class="btn small danger" type="submit" onclick="return confirm('Remove this post from the wall?');">
-                Remove from wall
+              <button
+                class="btn small danger"
+                type="submit"
+                onclick="return confirm('Remove this post from the wall?');">
+                  Remove from wall
               </button>
-            </form>
-
-            <form class="actions" method="post" action="/admin/move-back/<%= a.id %>">
-              <button class="btn small" type="submit">Move to back</button>
-            </form>
-
-            <form class="actions" method="post" action="/admin/bring-front/<%= a.id %>">
-              <button class="btn small" type="submit">Bring to front</button>
             </form>
           </div>
         <% }) %>
@@ -80,6 +75,7 @@
       document.querySelector('form.bulk-actions').submit();
     }
 
+    // ---- Auto-refresh moderation state (no page reload) ----
     let lastSig = null;
 
     function getSelectedIds() {
@@ -145,14 +141,6 @@
                 Remove from wall
               </button>
             </form>
-
-            <form class="actions" method="post" action="/admin/move-back/${escapeHtml(String(a.id))}">
-              <button class="btn small" type="submit">Move to back</button>
-            </form>
-
-            <form class="actions" method="post" action="/admin/bring-front/${escapeHtml(String(a.id))}">
-              <button class="btn small" type="submit">Bring to front</button>
-            </form>
           </div>
         `;
       }).join('');
@@ -166,14 +154,18 @@
         const data = await res.json();
         const sig = data.sig || null;
 
+        // If signature is unchanged, do nothing
         if (sig && sig === lastSig) return;
         lastSig = sig;
 
         renderPending(data.pending || []);
         renderApproved(data.approved || []);
-      } catch (e) {}
+      } catch (e) {
+        // silent
+      }
     }
 
+    // start polling
     setInterval(pollAdminState, 2000);
     pollAdminState();
   </script>
