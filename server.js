@@ -572,13 +572,13 @@ const adminAuth = basicAuth({
 });
 
 app.get('/admin', adminAuth, (req, res) => {
-  const pending = db.prepare(
-    'SELECT * FROM submissions WHERE approved=1 AND rejected=0 ORDER BY display_order DESC, created_at DESC LIMIT ?'
-  ).all(ADMIN_PENDING_LIMIT);
+ const pending = db.prepare(
+  'SELECT id, text, created_at, auto_flagged FROM submissions WHERE approved=0 AND rejected=0 ORDER BY id DESC LIMIT ?'
+).all(ADMIN_PENDING_LIMIT);
 
-  const approved = db.prepare(
-    'SELECT * FROM submissions WHERE approved=1 AND rejected=0 ORDER BY id DESC LIMIT ?'
-  ).all(ADMIN_APPROVED_LIMIT);
+const approved = db.prepare(
+  'SELECT id, text, created_at FROM submissions WHERE approved=1 AND rejected=0 ORDER BY display_order DESC, created_at DESC LIMIT ?'
+).all(ADMIN_APPROVED_LIMIT);
 
   res.render('admin', { title: 'Moderation', pending, approved });
 });
@@ -651,21 +651,6 @@ app.post('/admin/bring-front/:id', adminAuth, (req, res) => {
   res.redirect('/admin');
 });
 
-app.post('/admin/move-back/:id', adminAuth, (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  io.emit('removed_item', { id });
-  res.redirect('/admin');
-});
-
-app.post('/admin/bring-front/:id', adminAuth, (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const item = db.prepare(
-    'SELECT id, text, created_at FROM submissions WHERE id=? AND approved=1 AND rejected=0'
-  ).get(id);
-
-  if (item) io.emit('approved_item', item);
-  res.redirect('/admin');
-});
 
 app.post('/admin/bulk', adminAuth, (req, res) => {
   const ids = (req.body.ids || '')
