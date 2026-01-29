@@ -572,7 +572,7 @@ const adminAuth = basicAuth({
 });
 
 app.get('/admin', adminAuth, (req, res) => {
- const pending = db.prepare(
+const pending = db.prepare(
   'SELECT id, text, created_at, auto_flagged FROM submissions WHERE approved=0 AND rejected=0 ORDER BY id DESC LIMIT ?'
 ).all(ADMIN_PENDING_LIMIT);
 
