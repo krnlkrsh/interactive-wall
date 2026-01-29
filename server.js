@@ -169,10 +169,15 @@ db.prepare(`
     user_agent TEXT,
     auto_flagged INTEGER DEFAULT 0,
     approved INTEGER DEFAULT 0,
-    rejected INTEGER DEFAULT 0
+    rejected INTEGER DEFAULT 0,
+    display_order INTEGER DEFAULT 0
   )
 `).run();
 
+// Add column for older databases that don't have it yet
+try {
+  db.prepare(`ALTER TABLE submissions ADD COLUMN display_order INTEGER DEFAULT 0`).run();
+} catch {}
 // -------------------------
 // CSV seed (one-time)
 // -------------------------
@@ -538,7 +543,7 @@ app.get('/api/approved', (req, res) => {
       `SELECT id, text, created_at
        FROM submissions
        WHERE approved=1 AND rejected=0
-       ORDER BY created_at DESC
+       ORDER BY display_order DESC, created_at DESC
        LIMIT ?`
     ).all(APPROVED_FEED_LIMIT);
 
@@ -568,7 +573,7 @@ const adminAuth = basicAuth({
 
 app.get('/admin', adminAuth, (req, res) => {
   const pending = db.prepare(
-    'SELECT * FROM submissions WHERE approved=0 AND rejected=0 ORDER BY id DESC LIMIT ?'
+    'SELECT * FROM submissions WHERE approved=1 AND rejected=0 ORDER BY display_order DESC, created_at DESC LIMIT ?'
   ).all(ADMIN_PENDING_LIMIT);
 
   const approved = db.prepare(
@@ -588,7 +593,7 @@ app.get('/api/admin/state', adminAuth, (req, res) => {
     });
 
     const pending = db.prepare(
-      'SELECT id, text, created_at, auto_flagged FROM submissions WHERE approved=0 AND rejected=0 ORDER BY id DESC LIMIT ?'
+      'SELECT id, text, created_at FROM submissions WHERE approved=1 AND rejected=0 ORDER BY display_order DESC, created_at DESC LIMIT ?'
     ).all(ADMIN_PENDING_LIMIT);
 
     const approved = db.prepare(
@@ -625,6 +630,24 @@ app.post('/admin/remove/:id', adminAuth, (req, res) => {
   const id = parseInt(req.params.id, 10);
   db.prepare('UPDATE submissions SET approved=0, rejected=1 WHERE id=?').run(id);
   io.emit('removed_item', { id });
+  res.redirect('/admin');
+});
+app.post('/admin/move-back/:id', adminAuth, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  db.prepare('UPDATE submissions SET display_order = -1 WHERE id=?').run(id);
+  res.redirect('/admin');
+});
+
+app.post('/admin/bring-front/:id', adminAuth, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  db.prepare('UPDATE submissions SET display_order = 1 WHERE id=?').run(id);
+
+  const item = db.prepare(
+    'SELECT id, text, created_at FROM submissions WHERE id=?'
+  ).get(id);
+
+  if (item) io.emit('approved_item', item);
+
   res.redirect('/admin');
 });
 
