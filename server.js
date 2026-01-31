@@ -642,7 +642,16 @@ app.get('/admin', adminAuth, (req, res) => {
     'SELECT * FROM submissions WHERE approved=1 AND rejected=0 ORDER BY id DESC LIMIT ?'
   ).all(ADMIN_APPROVED_LIMIT);
 
-  res.render('admin', { title: 'Moderation', pending, approved });
+  const ghost_limit = getSetting('ghost_limit', '500');
+  const ghost_fontsize = getSetting('ghost_fontsize', '14');
+
+  res.render('admin', {
+    title: 'Moderation',
+    pending,
+    approved,
+    ghost_limit,
+    ghost_fontsize
+  });
 });
 
 app.get('/api/admin/state', adminAuth, (req, res) => {
