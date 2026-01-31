@@ -2,6 +2,20 @@
   <main class="container">
     <h1>Moderation</h1>
 
+<section>
+  <h2>Ghost layer settings</h2>
+  <form method="post" action="/admin/ghost-settings" class="bulk-actions">
+    <label style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <span>Ghost limit</span>
+      <input type="number" name="ghost_limit" min="0" max="4000" value="500" style="width:120px;">
+      <span>Font size</span>
+      <input type="number" name="ghost_fontsize" min="8" max="48" value="14" style="width:120px;">
+      <button class="btn" type="submit">Save</button>
+    </label>
+    <small>These only affect the ghost canvas layer, not moderation lists.</small>
+  </form>
+</section>
+
     <section>
       <h2>Pending (<span id="pending-count"><%= pending.length %></span>)</h2>
 
