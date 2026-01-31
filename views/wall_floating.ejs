@@ -85,9 +85,15 @@
   const maxwVW     = parseFloat(params.get('maxw') || '40');
   const paddingV   = parseFloat(params.get('pad')  || '5');
 
-  // NEW: ghost controls (only affects ghost layer)
-  const GHOST_LIMIT_PARAM   = parseInt(params.get('ghostLimit') || '500', 10); // 0 = disable ghosts
-  const GHOST_FONT_PX_PARAM = parseFloat(params.get('ghostFontPx') || '7.7');
+    // Ghost settings:
+  // - If URL params exist, they override everything.
+  // - Otherwise we pull from /api/ghosts (admin-controlled).
+  // Defaults below are only used if /api/ghosts fails.
+  const URL_GHOST_LIMIT = params.has('ghostLimit') ? parseInt(params.get('ghostLimit') || '500', 10) : null;
+  const URL_GHOST_FONT  = params.has('ghostFontPx') ? parseFloat(params.get('ghostFontPx') || '7.7') : null;
+
+  let GHOST_LIMIT = 500;     // will be overwritten by /api/ghosts or URL
+  let GHOST_FONT_PX = 7.7;   // will be overwritten by /api/ghosts or URL
 
   // size tuning
   const lenMinScale       = 0.78;    // scale for very long texts
@@ -239,14 +245,11 @@
     el.style.visibility = '';
   }
 
-       // Ghost tuning
-  const GHOST_FONT_PX   = GHOST_FONT_PX_PARAM; // fixed px size (from URL)
-  const GHOST_ALPHA     = 0.28;                // opacity
-  const GHOST_MAXW_VW   = 40;                  // wrap width
-  const GHOST_TRIES     = 80;                  // placement attempts
-  const GHOST_PAD_EXTRA = 2;                   // px spacing between ghosts (best effort)
-
-  const GHOST_LIMIT = Math.max(0, Number.isFinite(GHOST_LIMIT_PARAM) ? GHOST_LIMIT_PARAM : 500);
+        // Ghost tuning
+  const GHOST_ALPHA     = 0.28;  // opacity
+  const GHOST_MAXW_VW   = 40;    // wrap width
+  const GHOST_TRIES     = 80;    // placement attempts
+  const GHOST_PAD_EXTRA = 2;     // px spacing between ghosts (best effort)
 
   function resizeGhostCanvas() {
     const dpr = window.devicePixelRatio || 1;
@@ -385,7 +388,35 @@
   function removeGhostById(id) {
     ghostById.delete(String(id));
   }
+  async function loadGhostSettings() {
+    try {
+      const res = await fetch('/api/ghosts?_=' + Date.now(), { cache: 'no-store' });
+      if (!res.ok) throw new Error('ghosts_endpoint_failed');
+      const data = await res.json();
 
+      const fromAdminLimit = parseInt(String(data.ghost_limit ?? '500'), 10);
+      const fromAdminFont  = parseInt(String(data.ghost_fontsize ?? '14'), 10);
+
+      // server stores fontsize as 8..48 (admin UI), but your canvas wants px
+      // so we map it 1:1 to px
+      const safeAdminLimit = Math.max(0, Math.min(4000, Number.isFinite(fromAdminLimit) ? fromAdminLimit : 500));
+      const safeAdminFont  = Math.max(5, Math.min(48, Number.isFinite(fromAdminFont) ? fromAdminFont : 14));
+
+      // Apply admin settings
+      GHOST_LIMIT = safeAdminLimit;
+      GHOST_FONT_PX = safeAdminFont;
+    } catch (e) {
+      // keep defaults
+    }
+
+    // URL overrides admin if present
+    if (URL_GHOST_LIMIT != null && Number.isFinite(URL_GHOST_LIMIT)) {
+      GHOST_LIMIT = Math.max(0, URL_GHOST_LIMIT);
+    }
+    if (URL_GHOST_FONT != null && Number.isFinite(URL_GHOST_FONT)) {
+      GHOST_FONT_PX = Math.max(5, URL_GHOST_FONT);
+    }
+  }
   resizeGhostCanvas();
 redrawGhosts();
 
@@ -704,7 +735,9 @@ window.addEventListener('resize', () => {
     });
   }
 
-  loadInitial().then(bootSocket);
+   loadGhostSettings().then(() => {
+    loadInitial().then(bootSocket);
+  });
 </script>
 
 <%- include('partials_foot') %>
