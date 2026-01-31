@@ -598,7 +598,7 @@ app.get('/api/ghosts', (req, res) => {
     });
 
     const ghostLimit = Math.max(0, Math.min(4000, parseInt(getSetting('ghost_limit', '500'), 10) || 500));
-    const ghostFontsize = Math.max(8, Math.min(48, parseInt(getSetting('ghost_fontsize', '14'), 10) || 14));
+    const ghostFontsize = Math.max(1, parseInt(getSetting('ghost_fontsize', '14'), 10) || 14);
 
     // NOTE: These are still approved posts; we just send fewer for the ghost canvas.
     const rows = db.prepare(
@@ -741,7 +741,7 @@ app.post('/admin/ghost-settings', adminAuth, (req, res) => {
   const fontsize = parseInt(req.body.ghost_fontsize || '14', 10);
 
   const safeLimit = Math.max(0, Math.min(4000, Number.isFinite(limit) ? limit : 500));
-  const safeFont = Math.max(8, Math.min(48, Number.isFinite(fontsize) ? fontsize : 14));
+  const safeFont = Math.max(1, Number.isFinite(fontsize) ? fontsize : 14);
 
   setSetting('ghost_limit', String(safeLimit));
   setSetting('ghost_fontsize', String(safeFont));
