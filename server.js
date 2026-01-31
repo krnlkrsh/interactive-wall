@@ -169,9 +169,21 @@ db.prepare(`
     user_agent TEXT,
     auto_flagged INTEGER DEFAULT 0,
     approved INTEGER DEFAULT 0,
-    rejected INTEGER DEFAULT 0
+    rejected INTEGER DEFAULT 0,
+    display_order INTEGER DEFAULT 0
   )
 `).run();
+
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS settings(
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  )
+`).run();
+
+// Defaults (only set if missing)
+db.prepare(`INSERT OR IGNORE INTO settings(key, value) VALUES ('ghost_limit', '500')`).run();
+db.prepare(`INSERT OR IGNORE INTO settings(key, value) VALUES ('ghost_fontsize', '14')`).run();
 
 // -------------------------
 // CSV seed (one-time)
@@ -428,6 +440,22 @@ function sanitizeText(s) {
     .trim();
 }
 
+// Settings helpers
+function getSetting(key, fallback) {
+  try {
+    const row = db.prepare('SELECT value FROM settings WHERE key=?').get(key);
+    if (!row || row.value == null) return fallback;
+    return String(row.value);
+  } catch {
+    return fallback;
+  }
+}
+
+function setSetting(key, value) {
+  db.prepare('INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
+    .run(key, String(value));
+}
+
 // OpenAI moderation
 async function isFlaggedByOpenAI(text) {
   if (!openai.apiKey) return false;
@@ -538,12 +566,40 @@ app.get('/api/approved', (req, res) => {
       `SELECT id, text, created_at
        FROM submissions
        WHERE approved=1 AND rejected=0
-       ORDER BY created_at DESC
+       ORDER BY display_order DESC, created_at DESC
        LIMIT ?`
     ).all(APPROVED_FEED_LIMIT);
 
     res.json({ items: rows });
   } catch (err) {
+    res.status(500).json({ error: 'failed_to_fetch' });
+  }
+});
+
+// Ghost layer feed (separate from the main wall list)
+app.get('/api/ghosts', (req, res) => {
+  try {
+    res.set({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'Surrogate-Control': 'no-store'
+    });
+
+    const ghostLimit = Math.max(0, Math.min(4000, parseInt(getSetting('ghost_limit', '500'), 10) || 500));
+    const ghostFontsize = Math.max(8, Math.min(48, parseInt(getSetting('ghost_fontsize', '14'), 10) || 14));
+
+    // NOTE: These are still approved posts; we just send fewer for the ghost canvas.
+    const rows = db.prepare(
+      `SELECT id, text, created_at
+       FROM submissions
+       WHERE approved=1 AND rejected=0
+       ORDER BY display_order DESC, created_at DESC
+       LIMIT ?`
+    ).all(ghostLimit);
+
+    res.json({ items: rows, ghost_limit: ghostLimit, ghost_fontsize: ghostFontsize });
+  } catch (e) {
     res.status(500).json({ error: 'failed_to_fetch' });
   }
 });
@@ -656,6 +712,20 @@ app.post('/admin/bulk', adminAuth, (req, res) => {
   });
 
   emitApproved.forEach(item => io.emit('approved_item', item));
+  res.redirect('/admin');
+});
+
+// Update ghost settings (does NOT affect moderation lists)
+app.post('/admin/ghost-settings', adminAuth, (req, res) => {
+  const limit = parseInt(req.body.ghost_limit || '500', 10);
+  const fontsize = parseInt(req.body.ghost_fontsize || '14', 10);
+
+  const safeLimit = Math.max(0, Math.min(4000, Number.isFinite(limit) ? limit : 500));
+  const safeFont = Math.max(8, Math.min(48, Number.isFinite(fontsize) ? fontsize : 14));
+
+  setSetting('ghost_limit', String(safeLimit));
+  setSetting('ghost_fontsize', String(safeFont));
+
   res.redirect('/admin');
 });
 
