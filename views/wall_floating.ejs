@@ -72,7 +72,7 @@
 
 <script src="/socket.io/socket.io.js"></script>
 <script>
-  // ---- URL params with sensible defaults ----
+    // ---- URL params with sensible defaults ----
   const params     = new URLSearchParams(location.search);
   const videoSrc   = params.get('video') || 'video/background.mp4'; // file under /public/
   const maxActive  = 10; // hard lock to 10
@@ -84,6 +84,10 @@
   const fadeOutMin = parseFloat(params.get('fadeOutMin') || '30');
   const maxwVW     = parseFloat(params.get('maxw') || '40');
   const paddingV   = parseFloat(params.get('pad')  || '5');
+
+  // NEW: ghost controls (only affects ghost layer)
+  const GHOST_LIMIT_PARAM   = parseInt(params.get('ghostLimit') || '500', 10); // 0 = disable ghosts
+  const GHOST_FONT_PX_PARAM = parseFloat(params.get('ghostFontPx') || '7.7');
 
   // size tuning
   const lenMinScale       = 0.78;    // scale for very long texts
@@ -235,12 +239,14 @@
     el.style.visibility = '';
   }
 
-      // Ghost tuning
-  const GHOST_FONT_PX   = 7.7;    // fixed px size
-  const GHOST_ALPHA     = 0.28;   // opacity
-  const GHOST_MAXW_VW   = 40;     // wrap width
-  const GHOST_TRIES     = 80;     // placement attempts
-  const GHOST_PAD_EXTRA = 2;      // px spacing between ghosts (best effort)
+       // Ghost tuning
+  const GHOST_FONT_PX   = GHOST_FONT_PX_PARAM; // fixed px size (from URL)
+  const GHOST_ALPHA     = 0.28;                // opacity
+  const GHOST_MAXW_VW   = 40;                  // wrap width
+  const GHOST_TRIES     = 80;                  // placement attempts
+  const GHOST_PAD_EXTRA = 2;                   // px spacing between ghosts (best effort)
+
+  const GHOST_LIMIT = Math.max(0, Number.isFinite(GHOST_LIMIT_PARAM) ? GHOST_LIMIT_PARAM : 500);
 
   function resizeGhostCanvas() {
     const dpr = window.devicePixelRatio || 1;
@@ -599,36 +605,50 @@ window.addEventListener('resize', () => {
         }
       }
 
-      // 2) Ghosts: ensure every item NOT in front is in ghost canvas
-      // Build existing boxes from current ghosts so we can place new ones with best effort.
+            // 2) Ghosts: keep ONLY up to GHOST_LIMIT items (items not in front)
       const padPx = getPadPx();
-      const ghostBoxes = [];
-      for (const g of ghostById.values()) {
-        ghostBoxes.push({ x: g.x, y: g.y, w: g.w + 2, h: g.h + 2 });
-      }
-
       let ghostChanged = false;
 
-      for (let i = 0; i < all.length; i++) {
-        const it = all[i];
-        const id = String(it.id);
-        if (!keepFront.has(id)) {
+      // If user disables ghosts
+      if (GHOST_LIMIT === 0) {
+        if (ghostById.size > 0) {
+          ghostById.clear();
+          redrawGhosts();
+        }
+      } else {
+        // Choose which items should be ghosts: take first GHOST_LIMIT from the non-front list
+        const ghostItems = [];
+        for (let i = 0; i < all.length; i++) {
+          const it = all[i];
+          const id = String(it.id);
+          if (!keepFront.has(id)) ghostItems.push(it);
+          if (ghostItems.length >= GHOST_LIMIT) break;
+        }
+        const keepGhost = new Set(ghostItems.map(it => String(it.id)));
+
+        // Remove ghosts that should not be kept anymore (either not approved or beyond limit)
+        for (const id of Array.from(ghostById.keys())) {
+          if (!keepAll.has(id) || !keepGhost.has(id)) {
+            removeGhostById(id);
+            ghostChanged = true;
+          }
+        }
+
+        // Build existing boxes from current ghosts so we can place new ones with best effort.
+        const ghostBoxes = [];
+        for (const g of ghostById.values()) {
+          ghostBoxes.push({ x: g.x, y: g.y, w: g.w + 2, h: g.h + 2 });
+        }
+
+        // Ensure ghosts exist for the selected ghostItems only
+        for (let i = 0; i < ghostItems.length; i++) {
+          const it = ghostItems[i];
           const before = ghostById.size;
           ensureGhost(it, ghostBoxes, padPx);
           if (ghostById.size !== before) ghostChanged = true;
         }
-      }
 
-      // 3) Remove ghosts that are no longer approved
-      for (const id of Array.from(ghostById.keys())) {
-        if (!keepAll.has(id)) {
-          removeGhostById(id);
-          ghostChanged = true;
-        }
-      }
-
-      if (ghostChanged) {
-        redrawGhosts();
+        if (ghostChanged) redrawGhosts();
       }
 
       // 4) Spawn missing FRONT items (oldest->newest so Set order stays oldest->newest)
