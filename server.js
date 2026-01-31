@@ -160,6 +160,8 @@ if (process.env.TRUST_PROXY === '1') app.set('trust proxy', 1);
 // Database
 const db = new Database(path.join(__dirname, 'data', 'wall.db'));
 db.pragma('journal_mode = WAL');
+
+// Core table
 db.prepare(`
   CREATE TABLE IF NOT EXISTS submissions(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -174,6 +176,16 @@ db.prepare(`
   )
 `).run();
 
+// ---- DB migration for older disks (critical) ----
+// If the DB existed before display_order was introduced,
+// /api/approved will crash with "no such column: display_order"
+try {
+  db.prepare(`ALTER TABLE submissions ADD COLUMN display_order INTEGER DEFAULT 0`).run();
+} catch (e) {
+  // ignore if column already exists
+}
+
+// Settings table
 db.prepare(`
   CREATE TABLE IF NOT EXISTS settings(
     key TEXT PRIMARY KEY,
@@ -184,7 +196,6 @@ db.prepare(`
 // Defaults (only set if missing)
 db.prepare(`INSERT OR IGNORE INTO settings(key, value) VALUES ('ghost_limit', '500')`).run();
 db.prepare(`INSERT OR IGNORE INTO settings(key, value) VALUES ('ghost_fontsize', '14')`).run();
-
 // -------------------------
 // CSV seed (one-time)
 // -------------------------
