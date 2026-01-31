@@ -4,12 +4,12 @@
 
 <section>
   <h2>Ghost layer settings</h2>
-  <form method="post" action="/admin/ghost-settings" class="bulk-actions">
+  <form method="post" action="/admin/ghost-settings" class="ghost-settings">
     <label style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
       <span>Ghost limit</span>
-      <input type="number" name="ghost_limit" min="0" max="4000" value="500" style="width:120px;">
+      <input type="number" name="ghost_limit" min="0" max="4000" value="<%= ghost_limit %>" style="width:120px;">
       <span>Font size</span>
-      <input type="number" name="ghost_fontsize" min="8" max="48" value="14" style="width:120px;">
+      <input type="number" name="ghost_fontsize" min="8" max="48" value="<%= ghost_fontsize %>" style="width:120px;">
       <button class="btn" type="submit">Save</button>
     </label>
     <small>These only affect the ghost canvas layer, not moderation lists.</small>
@@ -19,7 +19,7 @@
     <section>
       <h2>Pending (<span id="pending-count"><%= pending.length %></span>)</h2>
 
-      <form method="post" action="/admin/bulk" class="bulk-actions">
+     <form id="bulk-form" method="post" action="/admin/bulk" class="bulk-actions">
         <input type="hidden" name="ids" id="bulk-ids" value="">
         <input type="hidden" name="action" id="bulk-action" value="approve">
         <button class="btn" type="button" onclick="bulk('approve')">Bulk Approve</button>
@@ -86,7 +86,7 @@
       const ids = Array.from(document.querySelectorAll('.sel:checked')).map(x => x.value);
       document.getElementById('bulk-ids').value = ids.join(',');
       document.getElementById('bulk-action').value = action;
-      document.querySelector('form.bulk-actions').submit();
+      document.getElementById('bulk-form').submit();
     }
 
     // ---- Auto-refresh moderation state (no page reload) ----
